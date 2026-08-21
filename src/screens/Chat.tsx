@@ -1,0 +1,203 @@
+import { ActionIcon, Alert, Button, Group, Select, Stack, Text, Title } from '@mantine/core';
+import { IconPlus, IconTrash } from '@tabler/icons-react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Composer } from '../components/Composer';
+import { ModelHeader } from '../components/ModelHeader';
+import { SystemPromptControl } from '../components/SystemPromptControl';
+import { Transcript } from '../components/Transcript';
+import { loadSettings } from '../db';
+import { useChatEngine } from '../hooks/useChatEngine';
+import { createNewConversation, removeConversation, useConversation } from '../hooks/useConversation';
+import { useConversationList } from '../hooks/useConversationList';
+import { useTokenCount } from '../hooks/useTokenCount';
+import { DEFAULT_SETTINGS, type GenerationParams } from '../types';
+
+const ENGINE_STATUS_MESSAGE: Record<string, string> = {
+  'needs-permission': 'This model needs permission to re-access the file. Open Models to grant it again.',
+  missing: 'This model is no longer available on this device. Open Models to re-download or re-pick it.',
+  error: 'The model could not be loaded.',
+};
+
+export function Chat(): ReactNode {
+  const [reloadKey, setReloadKey] = useState(0);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [params, setParams] = useState<GenerationParams>({
+    nCtx: DEFAULT_SETTINGS.nCtx,
+    temperature: DEFAULT_SETTINGS.temperature,
+    topK: DEFAULT_SETTINGS.topK,
+    topP: DEFAULT_SETTINGS.topP,
+    maxTokens: DEFAULT_SETTINGS.maxTokens,
+    seed: null,
+    systemPrompt: null,
+  });
+
+  const engine = useChatEngine(reloadKey);
+  const conversationList = useConversationList();
+  const conversation = useConversation(conversationId, engine.status === 'ready', params);
+  const tokensUsed = useTokenCount(conversation.state.messages, conversation.state.systemPrompt, engine.status === 'ready');
+
+  useEffect(() => {
+    loadSettings()
+      .then((settings) => {
+        setParams((prev) => ({
+          ...prev,
+          nCtx: settings.nCtx,
+          temperature: settings.temperature,
+          topK: settings.topK,
+          topP: settings.topP,
+          maxTokens: settings.maxTokens,
+        }));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const isCreatingFirstConversationRef = useRef(false);
+
+  useEffect(() => {
+    if (conversationId || conversationList.isLoading) return;
+
+    if (conversationList.conversations.length > 0) {
+      const first = conversationList.conversations[0];
+      if (first) setConversationId(first.id);
+      return;
+    }
+
+    // Nothing to switch to yet: create the first conversation automatically
+    // rather than making a freshly-installed model's first chat depend on
+    // an explicit "New" click. Guarded against re-entry, since this effect
+    // re-runs while the create/refresh round trip is still in flight.
+    if (engine.status === 'ready' && !isCreatingFirstConversationRef.current) {
+      isCreatingFirstConversationRef.current = true;
+      createNewConversation()
+        .then((id) => {
+          setConversationId(id);
+          return conversationList.refresh();
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          isCreatingFirstConversationRef.current = false;
+        });
+    }
+  }, [conversationId, conversationList.isLoading, conversationList.conversations, conversationList.refresh, engine.status]);
+
+  const handleNewConversation = useCallback(async () => {
+    const id = await createNewConversation();
+    await conversationList.refresh();
+    setConversationId(id);
+  }, [conversationList]);
+
+  const handleDeleteConversation = useCallback(async () => {
+    if (!conversationId) return;
+    await removeConversation(conversationId);
+    setConversationId(null);
+    await conversationList.refresh();
+  }, [conversationId, conversationList]);
+
+  if (engine.status === 'no-model') {
+    return (
+      <Stack gap="lg" align="center" py="xl" data-testid="chat-first-run">
+        <Title order={1}>Chat</Title>
+        <Text c="dark.1" ta="center" maw={420}>
+          No model is installed yet. Load one from this device or download one from the catalog to
+          start chatting.
+        </Text>
+        <Button component="a" href="#/models">
+          Go to Models
+        </Button>
+      </Stack>
+    );
+  }
+
+  if (engine.status === 'needs-permission' || engine.status === 'missing' || engine.status === 'error') {
+    return (
+      <Stack gap="lg">
+        <Title order={1}>Chat</Title>
+        <Alert color="yellow" title="This model needs attention">
+          {ENGINE_STATUS_MESSAGE[engine.status]}
+        </Alert>
+        <Group>
+          <Button component="a" href="#/models">
+            Go to Models
+          </Button>
+          <Button variant="subtle" onClick={() => setReloadKey((k) => k + 1)}>
+            Try again
+          </Button>
+        </Group>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack
+      gap="sm"
+      data-testid="chat-screen"
+      // AppShell.Main has no definite height of its own (it grows to fit
+      // content), so a plain h="100%" here resolves against nothing and
+      // the composer ends up pushed below the fold on any conversation
+      // taller than one screen. Mantine's own AppShell CSS vars give the
+      // real, viewport-accurate bound: the shell's header/footer offsets
+      // plus the padding this AppShell.Main was given on both edges.
+      style={{
+        height:
+          'calc(100dvh - var(--app-shell-header-offset, 0rem) - var(--app-shell-footer-offset, 0rem) - var(--app-shell-padding, 0rem) * 2)',
+      }}
+    >
+      <Group justify="space-between" wrap="wrap" gap="xs">
+        <Stack gap={2} style={{ minWidth: 0 }}>
+          <Title order={1} size="h4">
+            Chat
+          </Title>
+          <ModelHeader modelName={engine.model?.name ?? null} tier={engine.tier} />
+        </Stack>
+        <Group gap="xs" wrap="wrap">
+          <Select
+            aria-label="Switch conversation"
+            placeholder="Conversations"
+            value={conversationId}
+            onChange={setConversationId}
+            data={conversationList.conversations.map((c) => ({ value: c.id, label: c.title }))}
+            w={160}
+            size="xs"
+          />
+          <Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => void handleNewConversation()}>
+            New
+          </Button>
+          {conversationId && (
+            <SystemPromptControl systemPrompt={conversation.state.systemPrompt} onChange={(p) => void conversation.setSystemPrompt(p)} />
+          )}
+          {conversationId && (
+            <ActionIcon
+              size="lg"
+              variant="subtle"
+              color="red"
+              aria-label="Delete conversation"
+              onClick={() => void handleDeleteConversation()}
+            >
+              <IconTrash size={16} stroke={1.75} />
+            </ActionIcon>
+          )}
+        </Group>
+      </Group>
+
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        <Transcript
+          isLoading={conversation.state.isLoading}
+          errorMessage={conversation.state.errorMessage}
+          messages={conversation.state.messages}
+          isStreaming={conversation.state.isStreaming}
+          onRegenerate={() => void conversation.regenerate()}
+          onRetryLoad={() => setConversationId((id) => id)}
+        />
+      </div>
+
+      <Composer
+        disabled={!conversationId || engine.status !== 'ready'}
+        isStreaming={conversation.state.isStreaming}
+        tokensUsed={tokensUsed}
+        nCtx={params.nCtx}
+        onSend={(text) => void conversation.sendMessage(text)}
+        onStop={conversation.stop}
+      />
+    </Stack>
+  );
+}

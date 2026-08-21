@@ -1,0 +1,29 @@
+/* Plain stylesheet, not a CSS module, per the design system's no-.module.css rule.
+   Scoped by the stable .md-content class rather than component-local scoping. */
+.md-content {
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.md-content pre {
+  overflow-x: auto;
+  background: var(--mantine-color-dark-2);
+  border-radius: var(--mantine-radius-sm);
+  padding: var(--mantine-spacing-sm);
+}
+
+.md-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.md-content pre code {
+  white-space: pre;
+}
+
+.md-content p:first-child {
+  margin-top: 0;
+}
+
+.md-content p:last-child {
+  margin-bottom: 0;
+}
