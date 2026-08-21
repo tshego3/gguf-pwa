@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#131313" />
+    <meta name="description" content="gguf-pwa - run local LLMs entirely on your device" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="gguf-pwa" />
+    <!--
+      CSP: wasm-unsafe-eval is required for WASM instantiation (wllama). No other eval surface
+      is permitted. connect-src is limited to self and the Hugging Face hosts that serve GGUF
+      weights and their CDN redirect target - the same huggingface.co entry also covers the
+      live model-search API calls (api/models), which needs no separate host and no proxy since
+      HF reflects the request's Origin as Access-Control-Allow-Origin (verified with curl).
+      worker-src allows blob: because wllama's
+      ModelManager and its inference worker are both instantiated from blob: URLs (bundler
+      output), confirmed by a CSP violation caught in Playwright before this was added. GitHub
+      Pages cannot set response headers, so this is delivered by meta tag (P1-T11, P7-T1).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+        script-src 'self' 'wasm-unsafe-eval';
+        style-src 'self' 'unsafe-inline';
+        img-src 'self' data:;
+        font-src 'self' data:;
+        connect-src 'self' https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co;
+        worker-src 'self' blob:;
+        object-src 'none';
+        base-uri 'self';
+        form-action 'self';"
+    />
+    <!-- Relative, not root-absolute: the dev server prepends `base` to
+         root-absolute hrefs, which would turn these into /gguf-pwa/gguf-pwa/... -->
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <style>body{margin:0;background:#131313;color:#f5f5f5;font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif}</style>
+    <title>gguf-pwa</title>
+    <script type="module" crossorigin src="/gguf-pwa/assets/index-DaN9xhc-.js"></script>
+    <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/rolldown-runtime-Bh1tDfsg.js">
+    <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/framework-BvH_-tUY.js">
+    <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/wllama-ECqYUc-E.js">
+    <link rel="stylesheet" crossorigin href="/gguf-pwa/assets/framework-DnDzd1rn.css">
+    <link rel="stylesheet" crossorigin href="/gguf-pwa/assets/index-CW7BxGb7.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

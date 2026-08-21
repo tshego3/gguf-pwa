@@ -1,0 +1,26 @@
+{
+  "name": "gguf-pwa",
+  "short_name": "gguf-pwa",
+  "description": "Run local LLMs entirely on your device",
+  "start_url": "/gguf-pwa/",
+  "scope": "/gguf-pwa/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#131313",
+  "background_color": "#131313",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
