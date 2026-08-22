@@ -10,10 +10,10 @@ import { useChatEngine } from '../hooks/useChatEngine';
 import { createNewConversation, removeConversation, useConversation } from '../hooks/useConversation';
 import { useConversationList } from '../hooks/useConversationList';
 import { useTokenCount } from '../hooks/useTokenCount';
+import { reacquireLocalFiles } from '../models/localFileAccess';
 import { DEFAULT_SETTINGS, type GenerationParams } from '../types';
 
 const ENGINE_STATUS_MESSAGE: Record<string, string> = {
-  'needs-permission': 'This model needs permission to re-access the file. Open Models to grant it again.',
   missing: 'This model is no longer available on this device. Open Models to re-download or re-pick it.',
   error: 'The model could not be loaded.',
 };
@@ -93,6 +93,19 @@ export function Chat(): ReactNode {
     await conversationList.refresh();
   }, [conversationId, conversationList]);
 
+  // requestPermission() on a file handle only succeeds with a live user
+  // gesture behind it - some browsers (Samsung Internet among them) reject
+  // it outright when it runs from a background effect, which is what the
+  // automatic re-acquire on app start does. Calling it directly from this
+  // button's click keeps that gesture intact.
+  const handleGrantAccess = useCallback(async () => {
+    if (!engine.model) return;
+    const result = await reacquireLocalFiles(engine.model);
+    if (result.status === 'ok') {
+      setReloadKey((k) => k + 1);
+    }
+  }, [engine.model]);
+
   if (engine.status === 'no-model') {
     return (
       <Stack gap="lg" align="center" py="xl" data-testid="chat-first-run">
@@ -127,7 +140,27 @@ export function Chat(): ReactNode {
     );
   }
 
-  if (engine.status === 'needs-permission' || engine.status === 'missing' || engine.status === 'error') {
+  if (engine.status === 'needs-permission') {
+    return (
+      <Stack gap="lg">
+        <Title order={1}>Chat</Title>
+        <Alert color="yellow" title="This model needs permission">
+          {engine.model?.name ?? 'This model'} needs permission to re-access the file it was loaded
+          from. Tap Grant access below - your browser may show its own file-access prompt.
+        </Alert>
+        <Group>
+          <Button onClick={() => void handleGrantAccess()} data-testid="grant-access-button">
+            Grant access
+          </Button>
+          <Button component="a" href="#/models" variant="subtle">
+            Go to Models
+          </Button>
+        </Group>
+      </Stack>
+    );
+  }
+
+  if (engine.status === 'missing' || engine.status === 'error') {
     return (
       <Stack gap="lg">
         <Title order={1}>Chat</Title>
