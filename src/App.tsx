@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Loader, Stack } from '@mantine/core';
+import { Suspense, lazy, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { NavShell } from './components/NavShell';
 import { OfflineBanner } from './components/OfflineBanner';
 import { ReloadToIsolateBanner } from './components/ReloadToIsolateBanner';
@@ -9,8 +10,16 @@ import { ensurePersistentStorageRequested } from './models/persistentStorage';
 import { applyWaitingServiceWorker, registerServiceWorker } from './pwa/registerServiceWorker';
 import { useHashRoute } from './router/useHashRoute';
 import { Chat } from './screens/Chat';
-import { Models } from './screens/Models';
-import { Settings } from './screens/Settings';
+
+// Screens are split per the performance rule ("dynamic import() for screens
+// and heavy modules") - but Chat deliberately is not. Chat is the landing
+// route, so splitting it only moved it behind a second network hop
+// (framework chunk, then Chat chunk) and Lighthouse measured LCP and TTI
+// getting worse for it. Models and Settings are never the first paint, and
+// Models in particular drags in the catalog, Hugging Face search, and the
+// download manager, so those two stay lazy.
+const Models = lazy(() => import('./screens/Models').then((m) => ({ default: m.Models })));
+const Settings = lazy(() => import('./screens/Settings').then((m) => ({ default: m.Settings })));
 
 export function App(): ReactNode {
   const [route, navigate] = useHashRoute();
@@ -55,9 +64,17 @@ export function App(): ReactNode {
           }}
         />
       )}
-      {route === 'chat' && <Chat />}
-      {route === 'models' && <Models />}
-      {route === 'settings' && <Settings />}
+      <Suspense
+        fallback={
+          <Stack align="center" py="xl">
+            <Loader />
+          </Stack>
+        }
+      >
+        {route === 'chat' && <Chat />}
+        {route === 'models' && <Models />}
+        {route === 'settings' && <Settings />}
+      </Suspense>
       {updateAvailable && !updateDismissed && (
         <UpdatePrompt onReload={handleReloadToUpdate} onDismiss={() => setUpdateDismissed(true)} />
       )}

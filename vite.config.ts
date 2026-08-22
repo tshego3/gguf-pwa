@@ -34,7 +34,9 @@ export default defineConfig({
         // without it the PDF attachment tool works online and fails offline,
         // which breaks the "full conversation with the network disabled"
         // promise in a way the user would only discover on a plane.
-        globPatterns: ['**/*.{js,mjs,css,html,svg,png,wasm}'],
+        // webmanifest is included so an offline cold start can still resolve
+        // the install metadata rather than 404ing for it.
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,wasm,webmanifest}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
       },
     }),

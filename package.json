@@ -11,7 +11,9 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "check:engine-boundary": "bash scripts/check-engine-boundary.sh",
-    "bundle-report": "vite-bundle-visualizer"
+    "bundle-report": "vite-bundle-visualizer",
+    "check:no-telemetry": "bash scripts/check-no-telemetry.sh",
+    "verify:pwa": "node scripts/verify-pwa.mjs"
   },
   "dependencies": {
     "@mantine/core": "9.2.2",

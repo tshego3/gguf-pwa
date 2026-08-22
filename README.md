@@ -8,7 +8,55 @@ A browser-local LLM client. Downloads or opens a quantized llama.cpp GGUF model 
 
 Core chat/model-management flow implemented and passing CI (build, lint, Vitest, Playwright across Chromium/Firefox/WebKit). No physical iPhone/Android/Windows hardware exists in this environment, so device-measurement work (per-RAM-tier size caps, real Lighthouse/install-prompt checks) never ran — those items were completed virtually instead, using Playwright as the verification substitute, at the user's explicit request: the prompt library shipped with real Playwright coverage against the real engine, tool calling was spiked against a real downloaded model and declined with evidence, and embeddings/multimodal/model-comparison were deferred or declined. CI-checkable audits, performance, and licence-liveness checks are done, re-scoped from manual/on-device checks to "measured via Playwright, not a physical device". A mobile-usability pass also found and fixed two real layout bugs (the composer scrolling off-screen, the Models cards squeezing unreadably) and one real accessibility bug (Mantine's Modal close button had no accessible name). The Models screen also gained a third acquisition surface, live Hugging Face search (`src/components/HuggingFaceSearchCard.tsx`) - any public GGUF repository, not just the five curated catalog entries, feeding the same consent/pre-flight/download pipeline; verified against the real Hugging Face API in `e2e/hf-search.spec.ts`. Models with a reasoning-aware chat template (Qwen3, DeepSeek-R1 distills, QwQ) also get a collapsible "thinking" trace, separate from the answer (see "Reasoning" below).
 
-Run it locally: `npm install && npm run dev`. Full check: `npm run build && npm run lint && npm run test && npm run test:e2e`.
+Run it locally: `npm install && npm run dev`. Full check: `npm run build && npm run lint && npm run test && npm run test:e2e`, plus `npm run check:no-telemetry` and `npm run verify:pwa` against a built `dist/`.
+
+## Deploying
+
+Build and publish the static site to GitHub Pages manually:
+
+```bash
+npm run build
+npx gh-pages -d dist
+```
+
+The live site is [https://netuserhub.github.io/gguf-pwa/](https://netuserhub.github.io/gguf-pwa/). After publishing, verify the deployed PWA with the live URL:
+
+```bash
+PWA_URL=https://netuserhub.github.io/gguf-pwa/ npm run verify:pwa
+```
+
+## Chat tools (attachments)
+
+The composer accepts text files, PDFs, images, and video, **gated on what the loaded model actually reports**. After a model loads, `src/engine/worker.ts` calls wllama's `supportInputModality('image')` against the loaded GGUF and reports it up through `useChatEngine`; the composer narrows its `accept` list from that, so a text-only build of a vision architecture never offers an image picker it would silently drop.
+
+| Kind | How it reaches the model | Needs a vision model |
+|---|---|---|
+| `.txt/.md/.csv/.json/.log` | Extracted text, wrapped in a `<file name="…">` block ahead of your question | No |
+| `.pdf` | Text extracted per page via `pdfjs-dist` (dynamically imported, so it stays out of the initial bundle) | No |
+| Image | Raw bytes as a wllama image content part | Yes |
+| Video | **Sampled frames.** wllama has no video modality at all, so `src/chat/videoFrames.ts` decodes the clip through an `HTMLVideoElement`, seeks to 8 evenly spaced slice midpoints, and sends JPEG frames scaled to 384px — the form video-trained checkpoints like SmolVLM2 were trained on | Yes |
+
+Image bytes are deliberately **not** persisted in the transcript — binary blobs in IndexedDB is the same mistake as storing weights there. Only a name and kind survive, so regenerating a turn that carried an image re-sends the text only.
+
+## Auditing with Lighthouse
+
+Lighthouse is **not a project dependency, by design** — it pulls ~157 packages including `puppeteer-core` and `@puppeteer/browsers`, which can download Chrome binaries. Run it ad-hoc instead, against Playwright's already-installed Chromium so no system Chrome and no new browser is involved:
+
+```bash
+npm run build && npm run preview          # serves dist/ on :4173
+npx --yes lighthouse@13 http://localhost:4173/gguf-pwa/ \
+  --chrome-flags="--headless" --output=html --output-path=./lh.html
+```
+
+`npx --yes` resolves it into the npx cache for that run only; nothing is written to `package.json` or `package-lock.json`. Delete `lh.html` when done — it is not gitignored as a build artifact.
+
+Findings already fixed from a prior run (73 → 79 performance, 92 → 100 accessibility): the `user-scalable=no` viewport attribute was dropped (zoom is suppressed by `src/pwa/preventPinchZoom.ts`, which is what actually works — Samsung Internet ignores the meta tag); Models and Settings were split behind `lazy()` while **Chat deliberately was not**, since it is the landing route and splitting it only added a second network hop; and an inline boot shell in `index.html` gives a real first paint before React parses. Render-blocking Mantine CSS remains unfixed on purpose: the standard `media="print" onload=…` swap is an inline event handler, which this app's CSP blocks.
+
+## No telemetry, enforced
+
+The "no telemetry" claim is checked, not asserted. `npm run check:no-telemetry` runs against `dist/` and fails if the build gains an analytics host, a `navigator.sendBeacon` call, or a `connect-src` wider than the weight host. It runs against the build rather than the source because a transitive dependency can add a phone-home with no source file changing — `vite-plugin-pwa` pulls in `workbox-google-analytics`, which this proves stays unbundled.
+
+`.npmrc` also disables npm's `fund`, `update-notifier`, and install-time `audit` (the last is an automatic dependency-tree upload; run `npm audit` deliberately when vetting a new dependency).
 
 ## Where things are
 
@@ -17,6 +65,10 @@ Run it locally: `npm install && npm run dev`. Full check: `npm run build && npm 
 | [.claude/skills/](.claude/skills/) | Four project skills — engineering, inference/storage, design system, state/testing |
 | `src/engine/` | Worker-hosted wllama; the only module that imports `@wllama/wllama` |
 | `src/models/` | Catalog, both local-file acquisition paths, download manager, eviction recovery |
+| `src/models/downloadQueue.ts` | App-wide download queue — jobs run serially and survive navigating away from Models |
+| `src/chat/attachments.ts` + `videoFrames.ts` | Attachment extraction: text, PDF, image bytes, and video sampled into frames |
+| `scripts/check-no-telemetry.sh` | Fails the build if `dist/` gains an analytics host, a beacon, or a widened `connect-src` |
+| `scripts/verify-pwa.mjs` | Proves SW control, manifest validity, WASM compile, and offline cold start via Playwright's Chromium |
 | `src/db/` | IndexedDB via `idb` — conversations, messages, settings, installed models, file handles |
 | `src/sw.ts` | Precaching + COOP/COEP synthesis + CORP injection + explicit update flow |
 | `src/models/huggingfaceSearch.ts` | Browses one Hugging Face repo (`ggml-org/models`, by instruction) - no proxy, direct browser fetch (see below) |
@@ -109,6 +161,9 @@ iOS, Windows, and Android, all first-class. The iOS floor is anything running iO
 ## Known gaps
 
 - No physical devices were available for manual on-device verification — every per-RAM-tier size cap and `n_ctx` default in `src/models/deviceTiers.ts` is a provisional estimate, not a measurement.
-- No live GitHub Pages deployment exists yet, so deployed-only criteria (install prompt, Lighthouse, real HF network behavior under isolation) are unverified.
+- Lighthouse and `verify:pwa` have only been run against a local `vite preview`, never the live Pages URL. Localhost numbers carry simulated throttling and no real TLS/CDN latency, so re-run both against the deployed site (see "Deploying" above) before trusting them.
+- `src/chat/videoFrames.ts` has no test coverage: frame extraction needs a real video decode, which jsdom cannot do. It has never been observed running.
+- The image and video tools are unverified end to end — that needs a vision GGUF (`smolvlm-256m-instruct-q8` or either SmolVLM2 Video entry in the catalog) loaded on a real device.
+- Pinch zoom is suppressed deliberately (`src/pwa/preventPinchZoom.ts`), at explicit request. This is a knowing WCAG 1.4.4 trade-off, not an oversight; removing the viewport attribute silenced the automated audit but did not change the behaviour.
 - Playwright's bundled WebKit build cannot use OPFS in this environment (`navigator.storage.getDirectory()` throws outright, confirmed headed and headless) — every OPFS-dependent spec skips on that project and is documented inline. This was previously assumed to be purely a Playwright-WebKit quirk unrelated to real Safari; real-device testing proved that assumption wrong for a related but distinct reason (see "Real Safari bugs found" above) — Playwright's WebKit and real Safari fail at different points (`getDirectory()` itself vs. `createWritable()`), but neither one is a testing artifact to wave off.
 - The prompt library shipped without a device-verified baseline behind it, on explicit instruction; embeddings, multimodal, and model-comparison work remain deferred or declined for the same reason.
