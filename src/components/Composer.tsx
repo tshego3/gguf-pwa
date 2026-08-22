@@ -43,31 +43,32 @@ export function Composer({ disabled, isStreaming, tokensUsed, nCtx, onSend, onSt
           onKeyDown={handleKeyDown}
           disabled={disabled}
           autosize
-          minRows={1}
-          maxRows={8}
+          minRows={2}
+          maxRows={10}
+          size="md"
           style={{ flex: 1 }}
         />
         {isStreaming ? (
           <ActionIcon
-            size={44}
+            size={48}
             color="red"
             variant="filled"
             aria-label="Stop generating"
             onClick={onStop}
             data-testid="stop-button"
           >
-            <IconPlayerStop size={18} stroke={1.75} />
+            <IconPlayerStop size={20} stroke={1.75} />
           </ActionIcon>
         ) : (
           <ActionIcon
-            size={44}
+            size={48}
             variant="filled"
             aria-label="Send message"
             onClick={handleSend}
             disabled={disabled || value.trim().length === 0}
             data-testid="send-button"
           >
-            <IconSend size={18} stroke={1.75} />
+            <IconSend size={20} stroke={1.75} />
           </ActionIcon>
         )}
       </Group>

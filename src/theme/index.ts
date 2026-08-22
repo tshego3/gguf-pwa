@@ -50,6 +50,16 @@ export const theme = createTheme({
     lg: '16px',
     xl: '24px',
   },
+  // Bumped one notch over Mantine's defaults (14/16/18/20/24) - the chat
+  // transcript is the app's main surface and read as cramped at the stock
+  // scale, especially on phone.
+  fontSizes: {
+    xs: '13px',
+    sm: '15px',
+    md: '17px',
+    lg: '19px',
+    xl: '22px',
+  },
   spacing: {
     xs: '4px',
     sm: '8px',

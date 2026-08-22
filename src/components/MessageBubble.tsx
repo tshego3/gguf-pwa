@@ -24,14 +24,21 @@ export function MessageBubble({ message, isLastAssistant, canRegenerate, onRegen
     <Paper
       withBorder
       radius="lg"
-      p="md"
+      p="lg"
       data-testid={`message-${message.role}`}
       style={{
         alignSelf: isUser ? 'flex-end' : 'flex-start',
-        maxWidth: '85%',
-        backgroundColor: isUser ? 'var(--mantine-color-dark-2)' : undefined,
+        maxWidth: '92%',
+        // Tonal layering (design system rule): assistant bubbles sit on the
+        // Surface tone (dark.3) so they read as a distinct container against
+        // the Canvas background instead of blending into it. User bubbles
+        // use the lighter Elevated tone (dark.2) to read as "yours".
+        backgroundColor: isUser ? 'var(--mantine-color-dark-2)' : 'var(--mantine-color-dark-3)',
       }}
     >
+      <Text size="xs" c="dark.1" fw={600} mb={4} tt="uppercase" style={{ letterSpacing: '0.04em' }}>
+        {isUser ? 'You' : 'Assistant'}
+      </Text>
       {message.role === 'assistant' ? (
         (() => {
           const parsed = parseThinking(message.content);
@@ -45,7 +52,7 @@ export function MessageBubble({ message, isLastAssistant, canRegenerate, onRegen
           );
         })()
       ) : (
-        <Text style={{ whiteSpace: 'pre-wrap' }}>{message.content}</Text>
+        <Text size="md" style={{ whiteSpace: 'pre-wrap' }}>{message.content}</Text>
       )}
 
       <Group gap="xs" mt="xs" justify="flex-end">

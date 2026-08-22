@@ -108,6 +108,25 @@ export function Chat(): ReactNode {
     );
   }
 
+  if (engine.status === 'crash-risk') {
+    return (
+      <Stack gap="lg">
+        <Title order={1}>Chat</Title>
+        <Alert color="yellow" title="This model may have crashed the app last time">
+          Loading {engine.model?.name ?? 'this model'} did not finish last time you opened the app -
+          it likely ran out of memory and closed the tab. You can try again, or switch to a smaller
+          model.
+        </Alert>
+        <Group>
+          <Button onClick={() => setReloadKey((k) => k + 1)}>Load anyway</Button>
+          <Button component="a" href="#/models" variant="subtle">
+            Go to Models
+          </Button>
+        </Group>
+      </Stack>
+    );
+  }
+
   if (engine.status === 'needs-permission' || engine.status === 'missing' || engine.status === 'error') {
     return (
       <Stack gap="lg">
@@ -144,7 +163,7 @@ export function Chat(): ReactNode {
     >
       <Group justify="space-between" wrap="wrap" gap="xs">
         <Stack gap={2} style={{ minWidth: 0 }}>
-          <Title order={1} size="h4">
+          <Title order={1} size="h3">
             Chat
           </Title>
           <ModelHeader modelName={engine.model?.name ?? null} tier={engine.tier} />

@@ -15,5 +15,7 @@ export async function resolveActiveModel(): Promise<InstalledModel | null> {
 }
 
 export async function setActiveModel(modelId: string): Promise<void> {
-  await patchSettings({ activeModelId: modelId });
+  // Clears any stale crash-risk flag left by a previously active model - it
+  // no longer describes the model about to load (see AppSettings.pendingLoadModelId).
+  await patchSettings({ activeModelId: modelId, pendingLoadModelId: null });
 }

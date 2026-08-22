@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as engine from '../engine';
 import { probeCapabilities } from '../engine/capabilities';
-import { loadSettings } from '../db';
+import { loadSettings, patchSettings } from '../db';
 import { prepareChatModel, type PrepareChatModelResult } from '../models/prepareChatModel';
 import { toUserMessage, type BackendTier, type EngineError, type InstalledModel } from '../types';
 
@@ -10,6 +10,7 @@ export type ChatEngineStatus =
   | 'no-model'
   | 'needs-permission'
   | 'missing'
+  | 'crash-risk'
   | 'loading-model'
   | 'ready'
   | 'error';
@@ -51,6 +52,19 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
         return;
       }
 
+      // Only the very first, automatic run of a fresh mount is gated -
+      // reloadKey > 0 means the user already clicked an explicit retry
+      // ("Try again" / "Load anyway"), which is itself the conscious
+      // confirmation this guard exists to require.
+      if (reloadKey === 0) {
+        const priorSettings = await loadSettings();
+        if (cancelled) return;
+        if (priorSettings.pendingLoadModelId === prepared.model.modelId) {
+          setState({ status: 'crash-risk', tier: null, model: prepared.model, errorMessage: null });
+          return;
+        }
+      }
+
       setState({ status: 'loading-model', tier: null, model: prepared.model, errorMessage: null });
 
       try {
@@ -58,6 +72,7 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
         if (cancelled) return;
 
         const tier = settings.backendOverride === 'auto' ? caps.tier : settings.backendOverride;
+        await patchSettings({ pendingLoadModelId: prepared.model.modelId });
         await engine.loadModel(prepared.blobs, { ...caps, tier }, {
           nCtx: settings.nCtx,
           temperature: settings.temperature,
@@ -67,10 +82,12 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
           seed: null,
           systemPrompt: null,
         });
+        await patchSettings({ pendingLoadModelId: null });
         if (cancelled) return;
 
         setState({ status: 'ready', tier, model: prepared.model, errorMessage: null });
       } catch (error) {
+        await patchSettings({ pendingLoadModelId: null }).catch(() => undefined);
         if (cancelled) return;
         const engineError = error as EngineError;
         setState({ status: 'error', tier: null, model: prepared.model, errorMessage: engineError.message || toUserMessage(engineError) });
