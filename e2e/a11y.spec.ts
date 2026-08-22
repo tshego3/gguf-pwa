@@ -14,6 +14,10 @@ test.describe('accessibility', () => {
   for (const route of ROUTES) {
     test(`${route} has zero axe violations`, async ({ page }) => {
       await page.goto(`${BASE}${route}`);
+      // Screens are dynamically imported, so a bare goto() can hand axe the
+      // suspense fallback - which legitimately has no <h1> and reports
+      // page-has-heading-one. Wait for the real screen to mount first.
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
       const results = await new AxeBuilder({ page }).analyze();
       expect(results.violations).toEqual([]);
     });

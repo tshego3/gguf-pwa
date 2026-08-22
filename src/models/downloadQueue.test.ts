@@ -114,6 +114,72 @@ describe('downloadQueue', () => {
     expect(queue.getDownloadJobs()[0]?.errorMessage).toBe('Download failed.');
   });
 
+  // The bug this covers: cancelDownload only aborted the controller, so the
+  // job stayed 'downloading' until the abort propagated. A retry in that
+  // window saw an "active" job and was dropped on the floor, leaving the
+  // row on CANCELLED with nothing running.
+  it('runs a retry queued immediately after a cancel', async () => {
+    const attempts: AbortSignal[] = [];
+    downloadCatalogModel.mockImplementation((_model: unknown, _onProgress: unknown, signal: AbortSignal) => {
+      attempts.push(signal);
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          // wllama rejects some time after the abort, not synchronously.
+          setTimeout(() => reject({ type: 'aborted', message: '' }), 0);
+        });
+      });
+    });
+
+    const queue = await freshQueue();
+    queue.enqueueDownload(model('a'));
+    await vi.waitFor(() => {
+      expect(queue.getDownloadJobs()[0]?.status).toBe('downloading');
+    });
+
+    queue.cancelDownload('a');
+    // Marked cancelled straight away, so a retry in the same tick is not
+    // mistaken for an already-active download.
+    expect(queue.getDownloadJobs()[0]?.status).toBe('cancelled');
+
+    downloadCatalogModel.mockResolvedValue(undefined);
+    queue.enqueueDownload(model('a'));
+
+    await vi.waitFor(() => {
+      expect(queue.getDownloadJobs()[0]?.status).toBe('done');
+    });
+    expect(attempts).toHaveLength(1);
+  });
+
+  // The aborted run settles late. By then the retry owns the row, and the
+  // stale catch block must not overwrite it.
+  it('does not let a cancelled run overwrite the job that replaced it', async () => {
+    // Held on an object rather than a `let`: TypeScript narrows a variable
+    // assigned only inside a callback to `never` and then refuses the call.
+    const firstRun: { reject?: (reason: unknown) => void } = {};
+    downloadCatalogModel.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => {
+        firstRun.reject = reject;
+      }),
+    );
+
+    const queue = await freshQueue();
+    queue.enqueueDownload(model('a'));
+    await vi.waitFor(() => {
+      expect(queue.getDownloadJobs()[0]?.status).toBe('downloading');
+    });
+
+    queue.cancelDownload('a');
+    downloadCatalogModel.mockResolvedValue(undefined);
+    queue.enqueueDownload(model('a'));
+    expect(queue.getDownloadJobs()[0]?.status).toBe('queued');
+
+    firstRun.reject?.({ type: 'aborted', message: '' });
+
+    await vi.waitFor(() => {
+      expect(queue.getDownloadJobs()[0]?.status).toBe('done');
+    });
+  });
+
   it('notifies subscribers as a job progresses', async () => {
     downloadCatalogModel.mockResolvedValue(undefined);
 

@@ -14,7 +14,7 @@ import { useInstalledModels } from '../hooks/useInstalledModels';
 import { useTokenCount } from '../hooks/useTokenCount';
 import { setActiveModel } from '../models/activeModel';
 import { reacquireLocalFiles } from '../models/localFileAccess';
-import { DEFAULT_SETTINGS, type GenerationParams } from '../types';
+import { DEFAULT_SETTINGS, REMOTE_MODEL_ID, type GenerationParams } from '../types';
 
 const ENGINE_STATUS_MESSAGE: Record<string, string> = {
   missing: 'This model is no longer available on this device. Open Models to re-download or re-pick it.',
@@ -24,6 +24,7 @@ const ENGINE_STATUS_MESSAGE: Record<string, string> = {
 export function Chat(): ReactNode {
   const [reloadKey, setReloadKey] = useState(0);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [remoteEnabled, setRemoteEnabled] = useState(false);
   const [params, setParams] = useState<GenerationParams>({
     nCtx: DEFAULT_SETTINGS.nCtx,
     temperature: DEFAULT_SETTINGS.temperature,
@@ -43,6 +44,7 @@ export function Chat(): ReactNode {
   useEffect(() => {
     loadSettings()
       .then((settings) => {
+        setRemoteEnabled(settings.remoteEnabled);
         setParams((prev) => ({
           ...prev,
           nCtx: settings.nCtx,
@@ -147,9 +149,20 @@ export function Chat(): ReactNode {
           No model is installed yet. Load one from this device or download one from the catalog to
           start chatting.
         </Text>
-        <Button component="a" href="#/models">
-          Go to Models
-        </Button>
+        <Group>
+          <Button component="a" href="#/models">
+            Go to Models
+          </Button>
+          {remoteEnabled && (
+            <Button
+              variant="subtle"
+              onClick={() => void handleSwitchModel(REMOTE_MODEL_ID)}
+              data-testid="use-remote-button"
+            >
+              Use the online API
+            </Button>
+          )}
+        </Group>
       </Stack>
     );
   }
@@ -240,12 +253,13 @@ export function Chat(): ReactNode {
           <Group gap="xs" wrap="wrap">
             <ModelSwitcher
               models={installed.models}
-              activeModelId={engine.model?.modelId ?? null}
+              activeModelId={engine.backend === 'remote' ? REMOTE_MODEL_ID : (engine.model?.modelId ?? null)}
               onChange={(modelId) => void handleSwitchModel(modelId)}
+              includeRemote={remoteEnabled}
               disabled={conversation.state.isStreaming || engine.status === 'loading-model'}
               width={180}
             />
-            <ModelHeader tier={engine.tier} />
+            <ModelHeader tier={engine.tier} isRemote={engine.backend === 'remote'} />
           </Group>
         </Stack>
         <Group gap="xs" wrap="wrap">
@@ -288,6 +302,26 @@ export function Chat(): ReactNode {
           onRetryLoad={() => setConversationId((id) => id)}
         />
       </div>
+
+      {/* A failed generation leaves the transcript intact and reports
+          beside it. Replacing the transcript here would throw away the
+          partial reply that was just persisted, and the failure belongs to
+          one turn, not to the conversation. */}
+      {conversation.state.generationErrorMessage && (
+        <Alert color="red" title="That reply did not finish" data-testid="generation-error">
+          <Stack gap="xs">
+            <Text size="sm">{conversation.state.generationErrorMessage}</Text>
+            <Button
+              size="xs"
+              w="fit-content"
+              onClick={() => void conversation.regenerate()}
+              data-testid="generation-retry-button"
+            >
+              Try again
+            </Button>
+          </Stack>
+        </Alert>
+      )}
 
       <Composer
         disabled={!conversationId || engine.status !== 'ready'}

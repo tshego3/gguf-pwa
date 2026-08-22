@@ -46,6 +46,36 @@ export async function copyFileToOpfs(
   const worker = getWriteWorker();
 
   await new Promise<void>((resolve, reject) => {
+    function cleanup(): void {
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onWorkerError);
+      worker.removeEventListener('messageerror', onMessageError);
+    }
+
+    function fail(cause: string): void {
+      cleanup();
+      reject({
+        type: 'load',
+        message: withOpfsHint('Could not copy the model into on-device storage.', cause),
+        cause,
+      });
+    }
+
+    // A worker that fails to load, or throws before its own handler is
+    // installed, fires 'error' on this side and never sends a message.
+    // Without this listener that case is a promise which never settles -
+    // the UI sat on "Copying into on-device storage - 0%" forever with no
+    // way to tell a slow copy from a dead worker.
+    function onWorkerError(event: ErrorEvent): void {
+      fail(event.message || 'The storage worker failed to start.');
+    }
+
+    // Structured-clone failure on the way in or out. Same silent-hang
+    // shape as above if left unhandled.
+    function onMessageError(): void {
+      fail('The storage worker could not read the file.');
+    }
+
     function onMessage(event: MessageEvent<WriteResponse>): void {
       const response = event.data;
       if (response.id !== id) return;
@@ -54,19 +84,17 @@ export async function copyFileToOpfs(
         onProgress?.({ bytesWritten: response.bytesWritten, bytesTotal: response.bytesTotal });
         return;
       }
-      worker.removeEventListener('message', onMessage);
       if (response.kind === 'ok') {
+        cleanup();
         resolve();
-      } else {
-        reject({
-          type: 'load',
-          message: withOpfsHint('Could not copy the model into on-device storage.', response.message),
-          cause: response.message,
-        });
+        return;
       }
+      fail(response.message);
     }
 
     worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onWorkerError);
+    worker.addEventListener('messageerror', onMessageError);
     worker.postMessage({ id, kind: 'write', key, file: source });
   });
 }

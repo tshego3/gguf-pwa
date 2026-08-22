@@ -35,6 +35,18 @@ function patchJob(modelId: string, patch: Partial<DownloadJob>): void {
   emit();
 }
 
+// Applies a patch only while the job is still the one this run owns. A
+// cancel followed immediately by a retry replaces the entry with a fresh
+// 'queued' job; without this guard the aborted run's own catch block lands
+// afterwards and stamps that new entry 'cancelled', which is how a
+// cancel-then-retry ended up with a row stuck on CANCELLED and no download
+// running at all.
+function patchRunningJob(modelId: string, patch: Partial<DownloadJob>): void {
+  const current = jobs.find((job) => job.modelId === modelId);
+  if (current?.status !== 'downloading') return;
+  patchJob(modelId, patch);
+}
+
 export function subscribeToDownloads(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
@@ -61,16 +73,18 @@ async function runNext(): Promise<void> {
   patchJob(next.modelId, { status: 'downloading', progress: { bytesLoaded: 0, bytesTotal: next.model.bytes } });
 
   try {
-    await downloadCatalogModel(next.model, (progress) => patchJob(next.modelId, { progress }), controller.signal);
-    patchJob(next.modelId, { status: 'done', errorMessage: null });
+    await downloadCatalogModel(next.model, (progress) => patchRunningJob(next.modelId, { progress }), controller.signal);
+    patchRunningJob(next.modelId, { status: 'done', errorMessage: null });
   } catch (error) {
     const engineError = error as EngineError;
     if (engineError?.type === 'aborted') {
-      patchJob(next.modelId, { status: 'cancelled', progress: null, errorMessage: null });
+      // cancelDownload already marked it cancelled - this only covers an
+      // abort that came from somewhere else.
+      patchRunningJob(next.modelId, { status: 'cancelled', progress: null, errorMessage: null });
     } else {
       // engineError.message carries the type-specific sentence already
       // (set in src/engine/modelManager.ts); toUserMessage is the fallback.
-      patchJob(next.modelId, {
+      patchRunningJob(next.modelId, {
         status: 'error',
         errorMessage: engineError?.message || toUserMessage(engineError),
       });
@@ -97,13 +111,13 @@ export function enqueueDownload(model: CatalogModel): void {
 }
 
 export function cancelDownload(modelId: string): void {
-  const controller = controllers.get(modelId);
-  if (controller) {
-    controller.abort();
-    return;
-  }
-  // Not started yet: drop it from the queue outright.
-  patchJob(modelId, { status: 'cancelled', progress: null });
+  // Mark it cancelled now, not when the abort finishes propagating through
+  // wllama. The job used to stay 'downloading' for a beat after the click,
+  // and enqueueDownload treats 'downloading' as active - so a user who
+  // cancelled and immediately retried had that retry dropped silently, with
+  // nothing downloading and no error to explain it.
+  patchJob(modelId, { status: 'cancelled', progress: null, errorMessage: null });
+  controllers.get(modelId)?.abort();
 }
 
 export function dismissDownload(modelId: string): void {

@@ -19,7 +19,16 @@ interface ConversationState {
   readonly systemPrompt: string | null;
   readonly isLoading: boolean;
   readonly isStreaming: boolean;
+  // Failure to read the conversation out of IndexedDB. This one owns the
+  // transcript's error branch, because with no messages loaded there is
+  // nothing else to show.
   readonly errorMessage: string | null;
+  // Failure of one generation. Deliberately separate: the transcript is
+  // still valid and still on screen, including the partial reply that was
+  // just persisted, so this renders as an alert beside it rather than
+  // replacing it. Conflating the two wiped a live transcript every time a
+  // request failed - rare with a local model, routine with the online API.
+  readonly generationErrorMessage: string | null;
 }
 
 const INITIAL_STATE: ConversationState = {
@@ -28,6 +37,7 @@ const INITIAL_STATE: ConversationState = {
   isLoading: true,
   isStreaming: false,
   errorMessage: null,
+  generationErrorMessage: null,
 };
 
 interface UseConversation {
@@ -66,15 +76,24 @@ export function useConversation(
         systemPromptRef.current = null;
         return;
       }
-      setState((prev) => ({ ...prev, isLoading: true, errorMessage: null }));
+      setState((prev) => ({ ...prev, isLoading: true, errorMessage: null, generationErrorMessage: null }));
       try {
         const [messages, conversation] = await Promise.all([listMessages(conversationId), getConversation(conversationId)]);
         const systemPrompt = conversation?.systemPrompt ?? null;
         systemPromptRef.current = systemPrompt;
-        if (!cancelled) setState({ messages, systemPrompt, isLoading: false, isStreaming: false, errorMessage: null });
+        if (!cancelled) {
+          setState({ messages, systemPrompt, isLoading: false, isStreaming: false, errorMessage: null, generationErrorMessage: null });
+        }
       } catch {
         if (!cancelled) {
-          setState({ messages: [], systemPrompt: null, isLoading: false, isStreaming: false, errorMessage: 'Could not load this conversation.' });
+          setState({
+            messages: [],
+            systemPrompt: null,
+            isLoading: false,
+            isStreaming: false,
+            errorMessage: 'Could not load this conversation.',
+            generationErrorMessage: null,
+          });
         }
       }
     }
@@ -161,12 +180,12 @@ export function useConversation(
 
         const engineError = error as EngineError;
         // Abort is not an error - it ends the stream, persists the partial
-        // reply, and returns to the idle branch with no errorMessage set.
+        // reply, and returns to the idle branch with no message set.
         const isAborted = engineError.type === 'aborted';
         setState((prev) => ({
           ...prev,
           isStreaming: false,
-          errorMessage: isAborted ? null : engineError.message || toUserMessage(engineError),
+          generationErrorMessage: isAborted ? null : engineError.message || toUserMessage(engineError),
           messages: prev.messages.map((m) => (m.seq === assistantSeq ? { ...m, content: streamBufferRef.current, partial: true } : m)),
         }));
       }
@@ -219,7 +238,7 @@ export function useConversation(
       setState((prev) => ({
         ...prev,
         isStreaming: true,
-        errorMessage: null,
+        generationErrorMessage: null,
         messages: [...prev.messages, userMessage, assistantMessage],
       }));
 
@@ -245,7 +264,7 @@ export function useConversation(
     setState((prev) => ({
       ...prev,
       isStreaming: true,
-      errorMessage: null,
+      generationErrorMessage: null,
       messages: prev.messages.map((m) => (m.seq === assistantMessage.seq ? { ...m, content: '', partial: false } : m)),
     }));
 

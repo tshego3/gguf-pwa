@@ -13,14 +13,16 @@
 //    multi-thread WASM (Tier B). This only takes effect after the SW
 //    controls the page, so the first visit is never isolated - the app
 //    offers a reload as an explicit action rather than doing it silently.
-// 3. CORP injection on cross-origin model responses (Hugging Face and its
-//    CDN), so `credentialless` COEP does not break the fetches that
-//    ModelManager makes once isolation is active.
+// 3. CORP injection on cross-origin responses from the weight hosts
+//    (Hugging Face and its CDN) and from the optional online API, so
+//    `credentialless` COEP does not break the fetches that ModelManager
+//    and the remote backend make once isolation is active.
 // 4. Explicit update flow: no silent skipWaiting(). A new SW build sits in
 //    "waiting" until a client asks for it, so the app can show an update
 //    prompt rather than swapping inference code out from under a live tab.
 
 import { precacheAndRoute } from 'workbox-precaching';
+import { REMOTE_API_HOSTS } from './types/remote';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -31,6 +33,13 @@ declare const self: ServiceWorkerGlobalScope;
 declare const __SW_VERSION__: string;
 
 const MODEL_HOST_PATTERN = /^https:\/\/([a-z0-9-]+\.)*(huggingface\.co|hf\.co)$/i;
+
+// The optional online API's hosts, read from the same list that feeds the
+// connect-src in index.html. They need the same CORP treatment as the
+// weight hosts: once this SW turns on `credentialless` COEP, a cross-origin
+// response without CORP is blocked, and a chat reply is exactly as
+// cross-origin as a model download.
+const REMOTE_API_ORIGINS: ReadonlySet<string> = new Set(REMOTE_API_HOSTS.map((host) => `https://${host}`));
 
 precacheAndRoute(self.__WB_MANIFEST);
 
@@ -91,7 +100,7 @@ self.addEventListener('fetch', (event) => {
   // require-corp-adjacent restrictions once this page is isolated. Passes
   // the Hugging Face 302 redirect to its CDN through untouched other than
   // the header addition, and preserves Range requests for resume.
-  if (url.origin !== self.location.origin && MODEL_HOST_PATTERN.test(url.origin)) {
+  if (url.origin !== self.location.origin && (MODEL_HOST_PATTERN.test(url.origin) || REMOTE_API_ORIGINS.has(url.origin))) {
     event.respondWith(fetch(request).then(withCorpHeader));
   }
 });

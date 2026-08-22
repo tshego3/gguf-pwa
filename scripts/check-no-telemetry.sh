@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
-# "No inference server, no API key, no telemetry" is the product's central
-# claim, so it is enforced rather than asserted. Fails if the production
-# build gains an analytics endpoint, a beacon call, or a connect-src wide
-# enough to allow one.
+# "No telemetry, no API key" is the product's central claim, so it is
+# enforced rather than asserted. Fails if the production build gains an
+# analytics endpoint, a beacon call, or a connect-src wide enough to allow
+# one.
+#
+# The optional online API (src/engine/remote.ts, off by default) adds two
+# keyless inference hosts to the allow-list below. They are inference
+# endpoints the user switches on knowingly, not telemetry: nothing is sent
+# unless the user selects that backend and types a message. Adding a host
+# here without adding it to REMOTE_API_HOSTS in src/types/remote.ts, or the
+# reverse, must fail this check.
 #
 # Run against dist/, not src/: a transitive dependency can add a phone-home
 # without any source file changing (vite-plugin-pwa pulls in
@@ -67,8 +74,9 @@ else
   for token in $csp; do
     case "$token" in
       connect-src|\'self\'|https://huggingface.co|https://*.hf.co|https://cdn-lfs.huggingface.co|https://cdn-lfs-us-1.huggingface.co) ;;
+      https://text.pollinations.ai|https://prexzyapis.com) ;;
       *)
-        echo "ERROR: unexpected connect-src entry '$token' - only the weight host is allowed." >&2
+        echo "ERROR: unexpected connect-src entry '$token' - only the weight hosts and the declared online API hosts are allowed." >&2
         fail=1
         ;;
     esac
@@ -79,4 +87,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: no analytics endpoints, no beacons, connect-src limited to the weight host"
+echo "OK: no analytics endpoints, no beacons, connect-src limited to the weight hosts and the declared online API hosts"

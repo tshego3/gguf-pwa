@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import * as engine from '../engine';
 import { probeCapabilities } from '../engine/capabilities';
 import { loadSettings, patchSettings } from '../db';
-import { resolveActiveModel } from '../models/activeModel';
+import { resolveActiveModel, resolveActiveSelection, type ActiveSelection } from '../models/activeModel';
 import { prepareChatModel, type PrepareChatModelResult } from '../models/prepareChatModel';
 import {
   TEXT_ONLY_MODALITIES,
@@ -43,6 +43,11 @@ export type ChatEngineStatus =
 
 interface ChatEngineState {
   readonly status: ChatEngineStatus;
+  // 'remote' means the online API answers instead of a resident model.
+  // Chat reads this to say so in the header, because the difference is the
+  // difference between a prompt that stays on the device and one that does
+  // not.
+  readonly backend: ActiveSelection['kind'];
   readonly tier: BackendTier | null;
   readonly model: InstalledModel | null;
   readonly modalities: ModelModalities;
@@ -51,6 +56,7 @@ interface ChatEngineState {
 
 const INITIAL_STATE: ChatEngineState = {
   status: 'checking',
+  backend: 'none',
   tier: null,
   model: null,
   modalities: TEXT_ONLY_MODALITIES,
@@ -95,20 +101,36 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
         const settings = await loadSettings();
         if (cancelled) return;
 
+        const selection = await resolveActiveSelection();
+        if (cancelled) return;
+
+        // The online path loads no weights, so it is reachable even while a
+        // local model's crash flag is still set - that flag describes the
+        // model, not the app, and blocking here would trap a user whose only
+        // way out is the backend that cannot run out of memory.
+        if (selection.kind === 'remote') {
+          await engine.activateRemote(settings.remoteProviders);
+          if (cancelled) return;
+          setState({ status: 'ready', backend: 'remote', tier: null, model: null, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
+          return;
+        }
+
+        engine.deactivateRemote();
+
         // reloadKey > 0 means the user already clicked an explicit retry
         // ("Try again" / "Load anyway"), which is the conscious
         // confirmation this guard exists to require.
         if (settings.pendingLoadModelId !== null && reloadKey === 0) {
           const lastAttempted = await resolveActiveModel();
           if (cancelled) return;
-          setState({ status: 'crash-risk', tier: null, model: lastAttempted, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
+          setState({ status: 'crash-risk', backend: 'local', tier: null, model: lastAttempted, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
           return;
         }
 
         const active = await resolveActiveModel();
         if (cancelled) return;
         if (!active) {
-          setState({ status: 'no-model', tier: null, model: null, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
+          setState({ status: 'no-model', backend: 'none', tier: null, model: null, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
           return;
         }
         modelForError = active;
@@ -125,6 +147,7 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
           if (cancelled) return;
           setState({
             status: toStatus(prepared),
+            backend: 'local',
             tier: null,
             model: 'model' in prepared ? prepared.model : null,
             modalities: TEXT_ONLY_MODALITIES,
@@ -133,7 +156,7 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
           return;
         }
 
-        setState({ status: 'loading-model', tier: null, model: prepared.model, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
+        setState({ status: 'loading-model', backend: 'local', tier: null, model: prepared.model, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
 
         const caps = await probeCapabilities();
         if (cancelled) return;
@@ -151,13 +174,13 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
         await patchSettings({ pendingLoadModelId: null });
         if (cancelled) return;
 
-        setState({ status: 'ready', tier, model: prepared.model, modalities, errorMessage: null });
+        setState({ status: 'ready', backend: 'local', tier, model: prepared.model, modalities, errorMessage: null });
       } catch (error) {
         if (flagWritten) {
           await patchSettings({ pendingLoadModelId: null }).catch(() => undefined);
         }
         if (cancelled) return;
-        setState({ status: 'error', tier: null, model: modelForError, modalities: TEXT_ONLY_MODALITIES, errorMessage: safeErrorMessage(error) });
+        setState({ status: 'error', backend: 'local', tier: null, model: modelForError, modalities: TEXT_ONLY_MODALITIES, errorMessage: safeErrorMessage(error) });
       }
     }
 

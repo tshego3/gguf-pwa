@@ -1,4 +1,5 @@
 import type { BackendTier } from './capabilities';
+import { DEFAULT_REMOTE_PROVIDERS, type RemoteProvider } from './remote';
 
 export type BackendOverride = BackendTier | 'auto';
 
@@ -19,6 +20,12 @@ export interface AppSettings {
   // rule: a tab kill produces no catchable error, so recovery has to happen
   // on next launch instead).
   readonly pendingLoadModelId: string | null;
+  // The optional online API. Off by default: with this false the app makes
+  // no inference request of any kind, which is the state the product's
+  // on-device claim describes. Ordered - index 0 is the primary endpoint,
+  // later entries are fallbacks.
+  readonly remoteEnabled: boolean;
+  readonly remoteProviders: readonly RemoteProvider[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -31,4 +38,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   persistentStorageGranted: false,
   activeModelId: null,
   pendingLoadModelId: null,
+  remoteEnabled: false,
+  remoteProviders: DEFAULT_REMOTE_PROVIDERS,
 };

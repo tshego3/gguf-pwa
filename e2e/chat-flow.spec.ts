@@ -1,6 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { skipIfOpfsUnavailable } from './opfsSupport';
+import { seedMaxTokens } from './settingsSeed';
 
 const BASE = '/gguf-pwa/';
 const FIXTURE = fileURLToPath(new URL('./fixtures/stories260K.gguf', import.meta.url));
@@ -9,27 +10,6 @@ const FIXTURE = fileURLToPath(new URL('./fixtures/stories260K.gguf', import.meta
 // (covered separately) - keeping the SW out avoids any incidental
 // interaction with its fetch interception.
 test.use({ serviceWorkers: 'block' });
-
-// Bounds generation length so these tests run in comparable wall-clock time
-// across engines - Firefox's WASM single-thread tier (chosen deliberately
-// per the tier-selection rule) is documented as several times slower than
-// WebGPU. This only overrides a test fixture's settings, never the app's
-// shipped defaults.
-async function seedMaxTokens(page: Page, maxTokens: number): Promise<void> {
-  await page.evaluate((tokens) => {
-    return new Promise<void>((resolve, reject) => {
-      const req = indexedDB.open('gguf-db');
-      req.onerror = () => reject(req.error);
-      req.onsuccess = () => {
-        const db = req.result;
-        const tx = db.transaction('settings', 'readwrite');
-        tx.objectStore('settings').put({ maxTokens: tokens }, 'app-settings');
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      };
-    });
-  }, maxTokens);
-}
 
 // The full loop: load a real (tiny) GGUF via the primary acquisition path,
 // then chat against it through the actual worker-hosted wllama engine.

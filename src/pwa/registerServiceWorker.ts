@@ -17,7 +17,18 @@ export async function registerServiceWorker(handlers: SwUpdateHandlers): Promise
   if (!('serviceWorker' in navigator)) return;
 
   try {
-    registration = await navigator.serviceWorker.register('/gguf-pwa/sw.js');
+    // register() is typed as always resolving to a registration, but the
+    // runtime contract is weaker than the type: an environment that blocks
+    // or stubs service workers (Playwright's serviceWorkers: 'block', an
+    // enterprise policy, a privacy extension) resolves it with undefined
+    // rather than rejecting. Reading .waiting off that threw
+    // "TypeError: can't access property 'waiting'" before the guard below,
+    // which is why the cast is deliberate rather than an oversight.
+    const result = (await navigator.serviceWorker.register('/gguf-pwa/sw.js')) as
+      | ServiceWorkerRegistration
+      | undefined;
+    if (!result) return;
+    registration = result;
   } catch (error) {
     console.warn('Service worker registration failed', error);
     return;

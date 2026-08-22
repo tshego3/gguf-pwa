@@ -1,7 +1,9 @@
 import { AsyncQueue } from './asyncQueue';
 import { probeCapabilities } from './capabilities';
+import { estimateTokens, remoteAbort, remoteChat } from './remote';
 import { resolveGpuLayers } from './webgpuBudget';
 import type { WorkerRequest, WorkerResponse, EngineChatMessage, EngineChatParams } from './protocol';
+import type { RemoteProvider } from '../types/remote';
 import { TEXT_ONLY_MODALITIES, type EngineCapabilities, type EngineError, type GenerationParams, type ModelModalities } from '../types';
 
 // The public engine interface. Nothing outside src/engine/ may import
@@ -11,6 +13,12 @@ import { TEXT_ONLY_MODALITIES, type EngineCapabilities, type EngineError, type G
 let worker: Worker | null = null;
 let nextRequestId = 1;
 let isModelLoaded = false;
+
+// Non-null while the online API is the selected backend. It and a loaded
+// local model are mutually exclusive: activating either releases the
+// other, so "one model resident at a time" still holds and a prompt can
+// never be sent to both.
+let activeRemoteProviders: readonly RemoteProvider[] | null = null;
 
 interface PendingRequest {
   readonly resolve: (response: WorkerResponse) => void;
@@ -83,7 +91,20 @@ export async function loadModel(
 
   const response = await send(request);
   isModelLoaded = true;
+  activeRemoteProviders = null;
   return response.kind === 'loaded' ? response.modalities : TEXT_ONLY_MODALITIES;
+}
+
+// Selects the online API as the active backend. Unloads any resident local
+// model first, for the same reason switching between two local models
+// does: the device holds one backend at a time and the swap is explicit.
+export async function activateRemote(providers: readonly RemoteProvider[]): Promise<void> {
+  await unloadModel();
+  activeRemoteProviders = providers;
+}
+
+export function deactivateRemote(): void {
+  activeRemoteProviders = null;
 }
 
 export async function unloadModel(): Promise<void> {
@@ -103,6 +124,11 @@ export function isLoaded(): boolean {
 // Returns an async stream of tokens, per the engine interface contract.
 // Consumed with `for await (const token of chat(...))`.
 export function chat(messages: EngineChatMessage[], params: EngineChatParams): AsyncIterable<string> {
+  // The online API is stateless and takes no sampling parameters, so
+  // `params` is deliberately unused on this branch rather than faked into
+  // query string arguments the endpoints do not document.
+  if (activeRemoteProviders) return remoteChat(messages, activeRemoteProviders);
+
   const queue = new AsyncQueue<string>();
   const id = nextRequestId++;
 
@@ -120,11 +146,19 @@ export function chat(messages: EngineChatMessage[], params: EngineChatParams): A
 }
 
 export function abort(): void {
+  if (activeRemoteProviders) {
+    remoteAbort();
+    return;
+  }
   const id = nextRequestId++;
   getWorker().postMessage({ id, kind: 'abort', targetId: 0 } satisfies WorkerRequest);
 }
 
 export async function countTokens(text: string): Promise<number> {
+  // No tokenizer exists on the online path - there is no local model to
+  // ask - so the context meter falls back to a character estimate.
+  if (activeRemoteProviders) return estimateTokens(text);
+
   const id = nextRequestId++;
   const response = await send({ id, kind: 'countTokens', text });
   return response.kind === 'countTokensResult' ? response.count : 0;

@@ -1,6 +1,6 @@
 import { ActionIcon, Group, Pill, Text } from '@mantine/core';
 import { IconFileText, IconFileTypePdf, IconPhoto, IconVideo } from '@tabler/icons-react';
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { Attachment, AttachmentKind, AttachmentRef } from '../types';
 
 const KIND_ICON: Record<AttachmentKind, typeof IconPhoto> = {
@@ -67,21 +67,31 @@ interface AttachButtonProps {
   readonly onFilesChosen: (files: readonly File[]) => void;
 }
 
+// A real <button> that forwards its click to a hidden file input, rather
+// than an ActionIcon rendered as <label>. aria-label is prohibited on a
+// <label> with no role, so the label form had no accessible name at all -
+// axe caught it as aria-prohibited-attr, and a screen reader would have
+// announced an unnamed control. The button also takes `disabled` directly
+// instead of faking it with pointer-events.
 export function AttachButton({ accept, disabled, isBusy, onFilesChosen }: AttachButtonProps): ReactNode {
+  const inputRef = useRef<HTMLInputElement>(null);
+
   return (
-    <ActionIcon
-      component="label"
-      size={48}
-      variant="subtle"
-      color="gray"
-      aria-label="Attach a file"
-      loading={isBusy}
-      data-disabled={disabled || undefined}
-      style={disabled ? { pointerEvents: 'none', opacity: 0.5 } : undefined}
-      data-testid="attach-button"
-    >
-      <IconFileText size={20} stroke={1.75} />
+    <>
+      <ActionIcon
+        size={48}
+        variant="subtle"
+        color="gray"
+        aria-label="Attach a file"
+        loading={isBusy}
+        disabled={disabled}
+        onClick={() => inputRef.current?.click()}
+        data-testid="attach-button"
+      >
+        <IconFileText size={20} stroke={1.75} />
+      </ActionIcon>
       <input
+        ref={inputRef}
         type="file"
         accept={accept}
         multiple
@@ -94,6 +104,6 @@ export function AttachButton({ accept, disabled, isBusy, onFilesChosen }: Attach
           if (files.length > 0) onFilesChosen(files);
         }}
       />
-    </ActionIcon>
+    </>
   );
 }

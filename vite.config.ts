@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { REMOTE_API_HOSTS } from './src/types/remote';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as { version: string };
 
@@ -11,12 +12,29 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // hand-edited, so it cannot drift from what actually shipped.
 const swVersion = `${pkg.version}+${Date.now().toString(36)}`;
 
+// index.html carries the CSP as a meta tag (GitHub Pages cannot set
+// headers), so its connect-src cannot be built at runtime. This substitutes
+// the online API origins from the same REMOTE_API_HOSTS list the service
+// worker and the Settings validation read, so adding a provider host is a
+// one-line change in src/types/remote.ts rather than three edits that can
+// drift.
+function injectRemoteApiOrigins(): Plugin {
+  const origins = REMOTE_API_HOSTS.map((host) => `https://${host}`).join(' ');
+  return {
+    name: 'inject-remote-api-origins',
+    transformIndexHtml(html: string): string {
+      return html.replaceAll('%REMOTE_API_ORIGINS%', origins);
+    },
+  };
+}
+
 export default defineConfig({
   define: {
     __SW_VERSION__: JSON.stringify(swVersion),
   },
   plugins: [
     react(),
+    injectRemoteApiOrigins(),
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
