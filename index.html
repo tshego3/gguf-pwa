@@ -4,11 +4,12 @@
     <meta charset="UTF-8" />
     <!--
       Zoom is suppressed by src/pwa/preventPinchZoom.ts, not by this tag.
-      user-scalable=no was removed because it is redundant: the browsers that
-      honour it are a subset of those the JS blocker already covers, and
-      Samsung Internet ignored it outright, which is why the JS path exists.
-      Keeping it here only cost an automated accessibility failure without
-      changing behaviour on any real device.
+      maximum-scale/user-scalable are deliberately absent because they are
+      redundant: the browsers that honour them are a subset of those the JS
+      blocker already covers, and Samsung Internet ignored them outright,
+      which is why the JS path exists. Putting them back changes behaviour
+      on no real device and costs an axe meta-viewport failure on every
+      screen (e2e/a11y.spec.ts), which is why this reverts 48c238e.
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#131313" />
@@ -22,6 +23,10 @@
       weights and their CDN redirect target - the same huggingface.co entry also covers the
       live model-search API calls (api/models), which needs no separate host and no proxy since
       HF reflects the request's Origin as Access-Control-Allow-Origin (verified with curl).
+      https://text.pollinations.ai https://prexzyapis.com is substituted at build time by vite.config.ts from REMOTE_API_HOSTS
+      in src/types/remote.ts, so the one list governs the CSP, the SW, and the Settings
+      validation instead of three copies drifting apart. Those hosts are reachable only while
+      the optional online API is switched on; the local path still sends nothing.
       worker-src allows blob: because wllama's
       ModelManager and its inference worker are both instantiated from blob: URLs (bundler
       output), confirmed by a CSP violation caught in Playwright before this was added. GitHub
@@ -34,16 +39,22 @@
         style-src 'self' 'unsafe-inline';
         img-src 'self' data:;
         font-src 'self' data:;
-        connect-src 'self' https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co;
+        connect-src 'self' https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co https://text.pollinations.ai https://prexzyapis.com;
         worker-src 'self' blob:;
         object-src 'none';
         base-uri 'self';
         form-action 'self';"
     />
     <!-- Relative, not root-absolute: the dev server prepends `base` to
-         root-absolute hrefs, which would turn these into /gguf-pwa/gguf-pwa/... -->
+         root-absolute hrefs, which would turn these into /gguf-pwa/gguf-pwa/...
+         apple-touch-icon MUST be a PNG. iOS ignores an SVG here, and with no
+         usable icon declared Safari falls back to /apple-touch-icon.png at the
+         ORIGIN root - which on a github.io account is whatever another project
+         published there, so this app showed a different app's icon on the iOS
+         home screen. Regenerate all of these with scripts/generate-icons.mjs. -->
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <!-- Inline so first paint never waits on a stylesheet request. The
          boot block below is painted straight from this, giving a real
@@ -61,9 +72,9 @@
       }
     </style>
     <title>gguf-pwa</title>
-    <script type="module" crossorigin src="/gguf-pwa/assets/index-B2QKzzoR.js"></script>
+    <script type="module" crossorigin src="/gguf-pwa/assets/index-CfPWgsRg.js"></script>
     <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/rolldown-runtime-Bh1tDfsg.js">
-    <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/framework-iic8S4fl.js">
+    <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/framework-fV9Fig6l.js">
     <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/wllama-ECqYUc-E.js">
     <link rel="stylesheet" crossorigin href="/gguf-pwa/assets/framework-DnDzd1rn.css">
     <link rel="stylesheet" crossorigin href="/gguf-pwa/assets/index-72DvibX_.css">
