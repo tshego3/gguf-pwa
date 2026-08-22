@@ -24,6 +24,26 @@ function isCatalogModel(value: unknown): value is CatalogModel {
   );
 }
 
+// Derived, not declared: a vision model is one shipping a CLIP projector
+// alongside its weights, and wllama identifies that file by sniffing
+// `general.architecture=clip` from the GGUF header at load time. Reading the
+// same fact off the filename here lets the catalog say so before the
+// download, without a hand-maintained flag that could disagree with the
+// bytes actually fetched.
+export function isVisionModel(model: CatalogModel): boolean {
+  return model.files.some((file) => /(^|\/)mmproj[-_.]/i.test(file));
+}
+
+// Video capability is not a separate GGUF feature - the runtime has no
+// video modality at all, and a clip is sent as sampled frames through the
+// same projector an image uses. What actually differs is training: only a
+// video-trained checkpoint reasons over a frame sequence rather than
+// treating each frame in isolation. Vendors mark that in the model name,
+// which is the only signal available before download.
+export function isVideoModel(model: CatalogModel): boolean {
+  return isVisionModel(model) && /video/i.test(`${model.repo} ${model.name}`);
+}
+
 // Pure parser, independently testable against fixtures - the fetch itself
 // is a thin I/O wrapper below.
 export function parseCatalog(json: unknown): readonly CatalogModel[] {

@@ -4,7 +4,15 @@ import { probeCapabilities } from '../engine/capabilities';
 import { loadSettings, patchSettings } from '../db';
 import { resolveActiveModel } from '../models/activeModel';
 import { prepareChatModel, type PrepareChatModelResult } from '../models/prepareChatModel';
-import { toUserMessage, type BackendTier, type EngineError, type EngineErrorType, type InstalledModel } from '../types';
+import {
+  TEXT_ONLY_MODALITIES,
+  toUserMessage,
+  type BackendTier,
+  type EngineError,
+  type EngineErrorType,
+  type InstalledModel,
+  type ModelModalities,
+} from '../types';
 
 const KNOWN_ENGINE_ERROR_TYPES: readonly EngineErrorType[] = ['unsupported', 'download', 'load', 'oom', 'inference', 'aborted'];
 
@@ -37,10 +45,17 @@ interface ChatEngineState {
   readonly status: ChatEngineStatus;
   readonly tier: BackendTier | null;
   readonly model: InstalledModel | null;
+  readonly modalities: ModelModalities;
   readonly errorMessage: string | null;
 }
 
-const INITIAL_STATE: ChatEngineState = { status: 'checking', tier: null, model: null, errorMessage: null };
+const INITIAL_STATE: ChatEngineState = {
+  status: 'checking',
+  tier: null,
+  model: null,
+  modalities: TEXT_ONLY_MODALITIES,
+  errorMessage: null,
+};
 
 function toStatus(result: PrepareChatModelResult): ChatEngineStatus {
   if (result.status === 'none-installed') return 'no-model';
@@ -86,14 +101,14 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
         if (settings.pendingLoadModelId !== null && reloadKey === 0) {
           const lastAttempted = await resolveActiveModel();
           if (cancelled) return;
-          setState({ status: 'crash-risk', tier: null, model: lastAttempted, errorMessage: null });
+          setState({ status: 'crash-risk', tier: null, model: lastAttempted, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
           return;
         }
 
         const active = await resolveActiveModel();
         if (cancelled) return;
         if (!active) {
-          setState({ status: 'no-model', tier: null, model: null, errorMessage: null });
+          setState({ status: 'no-model', tier: null, model: null, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
           return;
         }
         modelForError = active;
@@ -108,17 +123,23 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
         if (prepared.status !== 'ready') {
           await patchSettings({ pendingLoadModelId: null });
           if (cancelled) return;
-          setState({ status: toStatus(prepared), tier: null, model: 'model' in prepared ? prepared.model : null, errorMessage: null });
+          setState({
+            status: toStatus(prepared),
+            tier: null,
+            model: 'model' in prepared ? prepared.model : null,
+            modalities: TEXT_ONLY_MODALITIES,
+            errorMessage: null,
+          });
           return;
         }
 
-        setState({ status: 'loading-model', tier: null, model: prepared.model, errorMessage: null });
+        setState({ status: 'loading-model', tier: null, model: prepared.model, modalities: TEXT_ONLY_MODALITIES, errorMessage: null });
 
         const caps = await probeCapabilities();
         if (cancelled) return;
 
         const tier = settings.backendOverride === 'auto' ? caps.tier : settings.backendOverride;
-        await engine.loadModel(prepared.blobs, { ...caps, tier }, {
+        const modalities = await engine.loadModel(prepared.blobs, { ...caps, tier }, {
           nCtx: settings.nCtx,
           temperature: settings.temperature,
           topK: settings.topK,
@@ -130,13 +151,13 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
         await patchSettings({ pendingLoadModelId: null });
         if (cancelled) return;
 
-        setState({ status: 'ready', tier, model: prepared.model, errorMessage: null });
+        setState({ status: 'ready', tier, model: prepared.model, modalities, errorMessage: null });
       } catch (error) {
         if (flagWritten) {
           await patchSettings({ pendingLoadModelId: null }).catch(() => undefined);
         }
         if (cancelled) return;
-        setState({ status: 'error', tier: null, model: modelForError, errorMessage: safeErrorMessage(error) });
+        setState({ status: 'error', tier: null, model: modelForError, modalities: TEXT_ONLY_MODALITIES, errorMessage: safeErrorMessage(error) });
       }
     }
 

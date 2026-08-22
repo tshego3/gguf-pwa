@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { pickAndPersistLocalFiles } from '../models/localFileAccess';
 import { copyLocalFilesToOpfs } from '../models/localFileInput';
+import { requestPersistentStorage } from '../models/persistentStorage';
 import { toUserMessage, type EngineError } from '../types';
 
 export type LocalLoadStatus = 'idle' | 'busy' | 'error';
@@ -54,6 +55,13 @@ export function useLocalFileLoad(onInstalled: () => void): UseLocalFileLoad {
 
       setState({ status: 'busy', errorMessage: null, copyProgressPercent: 0 });
       try {
+        // Ask for persistent storage before writing several hundred
+        // megabytes into OPFS, while the file-pick gesture is still recent
+        // - a browser that has not granted it can evict the copy at any
+        // time, which shows up later as a model that vanished on its own.
+        // Best-effort: a refusal never blocks the copy.
+        await requestPersistentStorage();
+
         const modelId = deriveModelId(first.name);
         await copyLocalFilesToOpfs(modelId, deriveDisplayName(first.name), files, (_index, progress) => {
           setState((prev) => ({ ...prev, copyProgressPercent: Math.round((progress.bytesWritten / progress.bytesTotal) * 100) }));

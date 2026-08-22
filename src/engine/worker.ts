@@ -46,7 +46,17 @@ async function handleLoad(request: Extract<WorkerRequest, { kind: 'load' }>): Pr
       default_template_kwargs: { enable_thinking: true },
     });
     wllama = instance;
-    post({ id: request.id, kind: 'ok' });
+    // Read straight from the loaded GGUF rather than guessing from the
+    // model's name: a text-only build of a vision-capable architecture
+    // reports false here, which is exactly what gates the image tool.
+    post({
+      id: request.id,
+      kind: 'loaded',
+      modalities: {
+        supportsImage: instance.supportInputModality('image'),
+        supportsAudio: instance.supportInputModality('audio'),
+      },
+    });
   } catch (error) {
     post({ id: request.id, kind: 'error', error: mapEngineError(error) });
   }
@@ -75,7 +85,20 @@ async function handleChat(request: Extract<WorkerRequest, { kind: 'chat' }>): Pr
 
   try {
     await wllama.createChatCompletion({
-      messages: request.messages,
+      // A message carrying images becomes an OpenAI-style content array;
+      // plain turns stay simple strings, which is what every text-only
+      // chat template expects.
+      messages: request.messages.map((message) =>
+        message.images && message.images.length > 0 && message.role === 'user'
+          ? {
+              role: 'user' as const,
+              content: [
+                ...message.images.map((data) => ({ type: 'image' as const, data })),
+                { type: 'text' as const, text: message.content },
+              ],
+            }
+          : { role: message.role, content: message.content },
+      ),
       stream: true,
       temperature: request.params.temperature,
       top_k: request.params.topK,

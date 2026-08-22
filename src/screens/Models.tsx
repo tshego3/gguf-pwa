@@ -1,17 +1,21 @@
 import { Alert, Button, Group, Modal, SimpleGrid, Skeleton, Stack, Text, Title } from '@mantine/core';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { CatalogList } from '../components/CatalogList';
 import { ConsentDialog } from '../components/ConsentDialog';
+import { DownloadManager } from '../components/DownloadManager';
 import { HuggingFaceSearchCard } from '../components/HuggingFaceSearchCard';
 import { InstalledModelsList } from '../components/InstalledModelsList';
 import { LocalFileCard } from '../components/LocalFileCard';
 import { StorageUsage } from '../components/StorageUsage';
 import { useCapabilities } from '../hooks/useCapabilities';
 import { useCatalog } from '../hooks/useCatalog';
+import { useDownloadQueue } from '../hooks/useDownloadQueue';
 import { useInstalledModels } from '../hooks/useInstalledModels';
 import { useLocalFileLoad } from '../hooks/useLocalFileLoad';
 import { useModelDownload } from '../hooks/useModelDownload';
+import { usePersistentStorageStatus } from '../hooks/usePersistentStorageStatus';
 import { selectLocalAcquisitionPath } from '../models/acquisitionPath';
+import { enqueueDownload } from '../models/downloadQueue';
 import type { CatalogModel } from '../types';
 
 export function Models(): ReactNode {
@@ -19,7 +23,17 @@ export function Models(): ReactNode {
   const catalog = useCatalog();
   const installed = useInstalledModels();
   const localFileLoad = useLocalFileLoad(() => void installed.refresh());
-  const download = useModelDownload(() => void installed.refresh());
+  const download = useModelDownload();
+  const storage = usePersistentStorageStatus();
+
+  // A finished download writes its InstalledModel record from the queue, so
+  // the list has to be re-read when a job completes rather than when this
+  // screen kicked one off - the two are no longer the same moment.
+  const refreshInstalled = installed.refresh;
+  const handleDownloadCompleted = useCallback(() => {
+    void refreshInstalled();
+  }, [refreshInstalled]);
+  const downloads = useDownloadQueue(handleDownloadCompleted);
 
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -87,6 +101,9 @@ export function Models(): ReactNode {
           status={localFileLoad.state.status}
           errorMessage={localFileLoad.state.errorMessage}
           copyProgressPercent={localFileLoad.state.copyProgressPercent}
+          isStoragePersisted={storage.persisted}
+          isRequestingStorage={storage.isRequesting}
+          onEnableStorage={() => void storage.request()}
           onPickViaFileSystemAccess={() => void localFileLoad.pickViaFileSystemAccess()}
           onFilesChosen={(files) => void localFileLoad.copyViaOpfs(files)}
         />
@@ -97,6 +114,13 @@ export function Models(): ReactNode {
           onDownload={handleDownload}
         />
       </SimpleGrid>
+
+      <DownloadManager
+        jobs={downloads.jobs}
+        onCancel={downloads.cancel}
+        onDismiss={downloads.dismiss}
+        onRetry={(job) => enqueueDownload(job.model)}
+      />
 
       <HuggingFaceSearchCard installedIds={installedIds} onDownload={handleDownload} />
 
@@ -109,15 +133,11 @@ export function Models(): ReactNode {
         <StorageUsage usageBytes={capabilities?.storageUsageBytes ?? null} quotaBytes={capabilities?.storageQuotaBytes ?? null} />
       </Stack>
 
-      {download.state.status !== 'idle' && download.state.model && (
+      {download.state.status === 'awaiting-consent' && download.state.model && (
         <ConsentDialog
           model={download.state.model}
-          status={download.state.status}
           warnings={download.state.warnings}
-          progress={download.state.progress}
-          errorMessage={download.state.errorMessage}
-          onConfirm={() => void download.confirmAndDownload()}
-          onCancel={download.cancel}
+          onConfirm={download.confirmAndDownload}
           onClose={download.dismiss}
         />
       )}

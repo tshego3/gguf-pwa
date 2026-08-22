@@ -30,7 +30,11 @@ export default defineConfig({
         // app shell and the vendored WASM runtime binary are precached.
         // The wllama.wasm runtime itself is ~8.5 MB, well past Workbox's
         // default 2 MiB precache ceiling, so that ceiling is raised here.
-        globPatterns: ['**/*.{js,css,html,svg,png,wasm}'],
+        // mjs is included for pdfjs's worker, which ships as an ES module -
+        // without it the PDF attachment tool works online and fails offline,
+        // which breaks the "full conversation with the network disabled"
+        // promise in a way the user would only discover on a plane.
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,wasm}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
       },
     }),

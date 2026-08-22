@@ -1,4 +1,4 @@
-import type { BackendTier } from '../types';
+import type { BackendTier, ModelModalities } from '../types';
 import type { EngineError } from '../types';
 
 export interface EngineLoadParams {
@@ -11,6 +11,9 @@ export interface EngineLoadParams {
 export interface EngineChatMessage {
   readonly role: 'system' | 'user' | 'assistant';
   readonly content: string;
+  // Raw image bytes for this turn, only ever set when the loaded model
+  // reports image support. Transferred to the worker, never persisted.
+  readonly images?: readonly ArrayBuffer[];
 }
 
 export interface EngineChatParams {
@@ -31,6 +34,7 @@ export type WorkerRequest =
 export type WorkerResponse =
   | { readonly id: number; readonly kind: 'loadProgress'; readonly bytesLoaded: number; readonly bytesTotal: number }
   | { readonly id: number; readonly kind: 'ok' }
+  | { readonly id: number; readonly kind: 'loaded'; readonly modalities: ModelModalities }
   | { readonly id: number; readonly kind: 'error'; readonly error: EngineError }
   | { readonly id: number; readonly kind: 'chatToken'; readonly token: string }
   | { readonly id: number; readonly kind: 'chatDone' }

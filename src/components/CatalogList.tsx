@@ -1,6 +1,7 @@
 import { Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
-import { IconCloudDownload } from '@tabler/icons-react';
+import { IconCloudDownload, IconPhoto } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
+import { isVideoModel, isVisionModel } from '../models/catalog';
 import type { CatalogModel } from '../types';
 
 interface CatalogListProps {
@@ -40,6 +41,11 @@ export function CatalogList({ models, installedIds, deviceMemoryGb, onDownload }
                     <Text c="dark.1" size="xs">
                       {formatGb(model.bytes)} - {model.contextLength.toLocaleString()} ctx
                     </Text>
+                    {isVisionModel(model) && (
+                      <Badge size="xs" variant="light" leftSection={<IconPhoto size={10} stroke={2} />}>
+                        {isVideoModel(model) ? 'reads images + video' : 'reads images'}
+                      </Badge>
+                    )}
                     {!suitable && (
                       <Badge color="yellow" size="xs">
                         may be too large for this device

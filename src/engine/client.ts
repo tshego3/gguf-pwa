@@ -2,7 +2,7 @@ import { AsyncQueue } from './asyncQueue';
 import { probeCapabilities } from './capabilities';
 import { resolveGpuLayers } from './webgpuBudget';
 import type { WorkerRequest, WorkerResponse, EngineChatMessage, EngineChatParams } from './protocol';
-import type { EngineCapabilities, EngineError, GenerationParams } from '../types';
+import { TEXT_ONLY_MODALITIES, type EngineCapabilities, type EngineError, type GenerationParams, type ModelModalities } from '../types';
 
 // The public engine interface. Nothing outside src/engine/ may import
 // @wllama/wllama directly - everything talks to the worker through this
@@ -58,7 +58,11 @@ export async function capabilities(): Promise<EngineCapabilities> {
   return probeCapabilities();
 }
 
-export async function loadModel(blobs: Blob[], caps: EngineCapabilities, params: GenerationParams): Promise<void> {
+export async function loadModel(
+  blobs: Blob[],
+  caps: EngineCapabilities,
+  params: GenerationParams,
+): Promise<ModelModalities> {
   const nGpuLayers =
     caps.tier === 'webgpu'
       ? resolveGpuLayers(
@@ -77,8 +81,9 @@ export async function loadModel(blobs: Blob[], caps: EngineCapabilities, params:
     params: { nCtx: params.nCtx, tier: caps.tier, nGpuLayers, nThreads },
   };
 
-  await send(request);
+  const response = await send(request);
   isModelLoaded = true;
+  return response.kind === 'loaded' ? response.modalities : TEXT_ONLY_MODALITIES;
 }
 
 export async function unloadModel(): Promise<void> {

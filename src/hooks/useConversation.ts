@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engine from '../engine';
+import type { EngineChatMessage } from '../engine';
 import {
   appendMessage,
   createConversation,
@@ -10,7 +11,8 @@ import {
   updateConversation,
   updateMessage,
 } from '../db';
-import { toUserMessage, type ChatMessage, type EngineError, type GenerationParams } from '../types';
+import { buildPromptWithAttachments } from '../chat/attachments';
+import { toUserMessage, type Attachment, type ChatMessage, type EngineError, type GenerationParams } from '../types';
 
 interface ConversationState {
   readonly messages: readonly ChatMessage[];
@@ -30,7 +32,7 @@ const INITIAL_STATE: ConversationState = {
 
 interface UseConversation {
   readonly state: ConversationState;
-  readonly sendMessage: (text: string) => Promise<void>;
+  readonly sendMessage: (text: string, attachments?: readonly Attachment[]) => Promise<void>;
   readonly stop: () => void;
   readonly regenerate: () => Promise<void>;
   readonly setSystemPrompt: (prompt: string | null) => Promise<void>;
@@ -91,11 +93,24 @@ export function useConversation(
   }, []);
 
   const streamAssistantReply = useCallback(
-    async (historyForEngine: readonly ChatMessage[], assistantSeq: number, conversationIdForWrite: string): Promise<void> => {
+    async (
+      historyForEngine: readonly ChatMessage[],
+      assistantSeq: number,
+      conversationIdForWrite: string,
+      images?: readonly ArrayBuffer[],
+    ): Promise<void> => {
       abortedByUserRef.current = false;
       streamBufferRef.current = '';
 
-      const engineMessages = historyForEngine.map((m) => ({ role: m.role, content: m.content }));
+      const engineMessages: EngineChatMessage[] = historyForEngine.map((m) => ({ role: m.role, content: m.content }));
+      // Images ride on the last user turn only - they belong to the message
+      // just sent, and earlier turns never carry bytes because the
+      // transcript does not persist them (see AttachmentRef).
+      const lastIndex = engineMessages.length - 1;
+      const lastTurn = engineMessages[lastIndex];
+      if (images && images.length > 0 && lastTurn?.role === 'user') {
+        engineMessages[lastIndex] = { ...lastTurn, images };
+      }
       // A per-conversation system prompt (P6-C1) is prepended to every
       // request, not stored as a ChatMessage - it is a property of the
       // conversation, not an entry in its transcript.
@@ -160,10 +175,17 @@ export function useConversation(
   );
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, attachments: readonly Attachment[] = []) => {
       if (!conversationId || !engineReady || state.isStreaming) return;
       const trimmed = text.trim();
-      if (!trimmed) return;
+      if (!trimmed && attachments.length === 0) return;
+
+      // The transcript keeps what the user typed; the engine receives that
+      // plus any extracted document text, so the prompt stays faithful
+      // without the transcript filling up with a pasted file.
+      const promptText = buildPromptWithAttachments(trimmed, attachments);
+      const images = attachments.flatMap((a) => a.images ?? []);
+      const attachmentRefs = attachments.map((a) => ({ kind: a.kind, name: a.name }));
 
       const userSeq = await nextSeq(conversationId);
       const userMessage: ChatMessage = {
@@ -173,11 +195,13 @@ export function useConversation(
         content: trimmed,
         partial: false,
         createdAt: Date.now(),
+        ...(attachmentRefs.length > 0 ? { attachments: attachmentRefs } : {}),
       };
       await appendMessage(userMessage);
 
       if (userSeq === 0) {
-        const title = trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed;
+        const titleSource = trimmed || attachmentRefs[0]?.name || 'New conversation';
+        const title = titleSource.length > 60 ? `${titleSource.slice(0, 60)}…` : titleSource;
         await updateConversation(conversationId, { title, updatedAt: Date.now() });
       }
 
@@ -199,8 +223,8 @@ export function useConversation(
         messages: [...prev.messages, userMessage, assistantMessage],
       }));
 
-      const history = [...state.messages, userMessage];
-      await streamAssistantReply(history, assistantSeq, conversationId);
+      const history = [...state.messages, { ...userMessage, content: promptText }];
+      await streamAssistantReply(history, assistantSeq, conversationId, images);
     },
     [conversationId, engineReady, state.isStreaming, state.messages, streamAssistantReply],
   );

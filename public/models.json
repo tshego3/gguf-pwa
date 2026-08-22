@@ -26,6 +26,45 @@
     "minDeviceMemoryGb": 3
   },
   {
+    "id": "smolvlm-256m-instruct-q8",
+    "name": "SmolVLM 256M Instruct (Q8_0, vision)",
+    "repo": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+    "files": ["SmolVLM-256M-Instruct-Q8_0.gguf", "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf"],
+    "params": "0.26B",
+    "quant": "Q8_0",
+    "bytes": 278824384,
+    "contextLength": 8192,
+    "licence": "Apache-2.0",
+    "licenceUrl": "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF",
+    "minDeviceMemoryGb": 3
+  },
+  {
+    "id": "smolvlm2-256m-video-instruct-q8",
+    "name": "SmolVLM2 256M Video Instruct (Q8_0, vision + video)",
+    "repo": "ggml-org/SmolVLM2-256M-Video-Instruct-GGUF",
+    "files": ["SmolVLM2-256M-Video-Instruct-Q8_0.gguf", "mmproj-SmolVLM2-256M-Video-Instruct-Q8_0.gguf"],
+    "params": "0.26B",
+    "quant": "Q8_0",
+    "bytes": 278828032,
+    "contextLength": 8192,
+    "licence": "Apache-2.0",
+    "licenceUrl": "https://huggingface.co/ggml-org/SmolVLM2-256M-Video-Instruct-GGUF",
+    "minDeviceMemoryGb": 3
+  },
+  {
+    "id": "smolvlm2-500m-video-instruct-q8",
+    "name": "SmolVLM2 500M Video Instruct (Q8_0, vision + video)",
+    "repo": "ggml-org/SmolVLM2-500M-Video-Instruct-GGUF",
+    "files": ["SmolVLM2-500M-Video-Instruct-Q8_0.gguf", "mmproj-SmolVLM2-500M-Video-Instruct-Q8_0.gguf"],
+    "params": "0.5B",
+    "quant": "Q8_0",
+    "bytes": 545593888,
+    "contextLength": 8192,
+    "licence": "Apache-2.0",
+    "licenceUrl": "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF",
+    "minDeviceMemoryGb": 4
+  },
+  {
     "id": "qwen3-0.6b-q4km",
     "name": "Qwen3 0.6B (Q4_K_M)",
     "repo": "unsloth/Qwen3-0.6B-GGUF",
@@ -49,6 +88,19 @@
     "contextLength": 32768,
     "licence": "Apache-2.0",
     "licenceUrl": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF",
+    "minDeviceMemoryGb": 4
+  },
+  {
+    "id": "qwen3.5-0.8b-q4-0",
+    "name": "Qwen3.5 0.8B (Q4_0)",
+    "repo": "ggml-org/Qwen3.5-0.8B-GGUF",
+    "files": ["Qwen3.5-0.8B-Q4_0.gguf"],
+    "params": "0.8B",
+    "quant": "Q4_0",
+    "bytes": 563036064,
+    "contextLength": 262144,
+    "licence": "Apache-2.0",
+    "licenceUrl": "https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF",
     "minDeviceMemoryGb": 4
   },
   {

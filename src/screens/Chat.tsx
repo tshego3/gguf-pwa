@@ -3,13 +3,16 @@ import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Composer } from '../components/Composer';
 import { ModelHeader } from '../components/ModelHeader';
+import { ModelSwitcher } from '../components/ModelSwitcher';
 import { SystemPromptControl } from '../components/SystemPromptControl';
 import { Transcript } from '../components/Transcript';
 import { loadSettings } from '../db';
 import { useChatEngine } from '../hooks/useChatEngine';
 import { createNewConversation, removeConversation, useConversation } from '../hooks/useConversation';
 import { useConversationList } from '../hooks/useConversationList';
+import { useInstalledModels } from '../hooks/useInstalledModels';
 import { useTokenCount } from '../hooks/useTokenCount';
+import { setActiveModel } from '../models/activeModel';
 import { reacquireLocalFiles } from '../models/localFileAccess';
 import { DEFAULT_SETTINGS, type GenerationParams } from '../types';
 
@@ -32,6 +35,7 @@ export function Chat(): ReactNode {
   });
 
   const engine = useChatEngine(reloadKey);
+  const installed = useInstalledModels();
   const conversationList = useConversationList();
   const conversation = useConversation(conversationId, engine.status === 'ready', params);
   const tokensUsed = useTokenCount(conversation.state.messages, conversation.state.systemPrompt, engine.status === 'ready');
@@ -92,6 +96,16 @@ export function Chat(): ReactNode {
     setConversationId(null);
     await conversationList.refresh();
   }, [conversationId, conversationList]);
+
+  // Switching model is a reload of the engine, not a preference change -
+  // setActiveModel persists the choice, and the reloadKey bump makes
+  // useChatEngine unload the current model and load the new one. The bump
+  // also bypasses the crash guard, which is correct: this is an explicit
+  // user action, not an automatic retry of a load that killed the tab.
+  const handleSwitchModel = useCallback(async (modelId: string) => {
+    await setActiveModel(modelId);
+    setReloadKey((k) => k + 1);
+  }, []);
 
   const [grantAccessError, setGrantAccessError] = useState<string | null>(null);
   const [isGranting, setIsGranting] = useState(false);
@@ -219,11 +233,20 @@ export function Chat(): ReactNode {
       }}
     >
       <Group justify="space-between" wrap="wrap" gap="xs">
-        <Stack gap={2} style={{ minWidth: 0 }}>
+        <Stack gap={6} style={{ minWidth: 0 }}>
           <Title order={1} size="h4">
             Chat
           </Title>
-          <ModelHeader modelName={engine.model?.name ?? null} tier={engine.tier} />
+          <Group gap="xs" wrap="wrap">
+            <ModelSwitcher
+              models={installed.models}
+              activeModelId={engine.model?.modelId ?? null}
+              onChange={(modelId) => void handleSwitchModel(modelId)}
+              disabled={conversation.state.isStreaming || engine.status === 'loading-model'}
+              width={180}
+            />
+            <ModelHeader tier={engine.tier} />
+          </Group>
         </Stack>
         <Group gap="xs" wrap="wrap">
           <Select
@@ -271,7 +294,8 @@ export function Chat(): ReactNode {
         isStreaming={conversation.state.isStreaming}
         tokensUsed={tokensUsed}
         nCtx={params.nCtx}
-        onSend={(text) => void conversation.sendMessage(text)}
+        modalities={engine.modalities}
+        onSend={(text, attachments) => void conversation.sendMessage(text, attachments)}
         onStop={conversation.stop}
       />
     </Stack>

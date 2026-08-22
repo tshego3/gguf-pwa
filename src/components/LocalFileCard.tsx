@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Progress, Stack, Text, Title } from '@mantine/core';
+import { Alert, Button, Card, Group, Progress, Stack, Text, Title } from '@mantine/core';
 import { IconDeviceLaptop } from '@tabler/icons-react';
 import type { ChangeEvent, ReactNode } from 'react';
 import type { LocalAcquisitionPath } from '../models/acquisitionPath';
@@ -9,6 +9,9 @@ interface LocalFileCardProps {
   readonly status: LocalLoadStatus;
   readonly errorMessage: string | null;
   readonly copyProgressPercent: number | null;
+  readonly isStoragePersisted: boolean | null;
+  readonly isRequestingStorage: boolean;
+  readonly onEnableStorage: () => void;
   readonly onPickViaFileSystemAccess: () => void;
   readonly onFilesChosen: (files: readonly File[]) => void;
 }
@@ -21,6 +24,9 @@ export function LocalFileCard({
   status,
   errorMessage,
   copyProgressPercent,
+  isStoragePersisted,
+  isRequestingStorage,
+  onEnableStorage,
   onPickViaFileSystemAccess,
   onFilesChosen,
 }: LocalFileCardProps): ReactNode {
@@ -29,6 +35,10 @@ export function LocalFileCard({
     event.target.value = '';
     if (files.length > 0) onFilesChosen(files);
   }
+
+  // Only the copy path depends on storage surviving: the File System Access
+  // path leaves the file where the user put it and stores nothing.
+  const showStorageEnabler = path === 'input-opfs' && isStoragePersisted !== true;
 
   return (
     <Card withBorder padding="lg" radius="lg" data-testid="local-file-card">
@@ -47,6 +57,27 @@ export function LocalFileCard({
           </Text>
         )}
 
+        {showStorageEnabler && (
+          <Alert color="yellow" p="xs" data-testid="local-storage-enabler">
+            <Stack gap={6}>
+              <Text size="xs">
+                This browser has not granted persistent storage, so it can delete the copied model
+                later to reclaim space. Granting it first is recommended.
+              </Text>
+              <Button
+                size="compact-xs"
+                variant="light"
+                w="fit-content"
+                loading={isRequestingStorage}
+                onClick={onEnableStorage}
+                data-testid="local-enable-storage-button"
+              >
+                Enable storage
+              </Button>
+            </Stack>
+          </Alert>
+        )}
+
         {status === 'error' && errorMessage && (
           <Alert color="yellow" title="Could not load this file">
             {errorMessage}
@@ -54,21 +85,32 @@ export function LocalFileCard({
         )}
 
         {copyProgressPercent !== null && (
-          <Progress
-            value={copyProgressPercent}
-            aria-label="Copy progress" />
+          <Stack gap={4}>
+            <Progress
+              value={copyProgressPercent}
+              aria-label="Copy progress"
+              aria-valuenow={copyProgressPercent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
+            <Text c="dark.1" size="xs" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              Copying into on-device storage - {copyProgressPercent}%
+            </Text>
+          </Stack>
         )}
 
-        {path === 'file-system-access' ? (
-          <Button onClick={onPickViaFileSystemAccess} loading={status === 'busy'} data-testid="pick-file-button">
-            Choose a file
-          </Button>
-        ) : (
-          <Button component="label" loading={status === 'busy'} data-testid="pick-file-button">
-            Choose a file
-            <input type="file" accept=".gguf" multiple hidden onChange={handleInputChange} data-testid="local-file-input" />
-          </Button>
-        )}
+        <Group>
+          {path === 'file-system-access' ? (
+            <Button onClick={onPickViaFileSystemAccess} loading={status === 'busy'} data-testid="pick-file-button">
+              Choose a file
+            </Button>
+          ) : (
+            <Button component="label" loading={status === 'busy'} data-testid="pick-file-button">
+              Choose a file
+              <input type="file" accept=".gguf" multiple hidden onChange={handleInputChange} data-testid="local-file-input" />
+            </Button>
+          )}
+        </Group>
       </Stack>
     </Card>
   );

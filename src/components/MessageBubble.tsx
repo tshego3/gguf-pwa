@@ -2,6 +2,7 @@ import { ActionIcon, Badge, Group, Paper, Stack, Text, Tooltip } from '@mantine/
 import { IconCopy, IconRefresh } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
 import type { ChatMessage } from '../types';
+import { SentAttachmentChips } from './AttachmentChips';
 import { MarkdownMessage } from './MarkdownMessage';
 import { ThinkingBlock } from './ThinkingBlock';
 import { parseThinking } from './thinking';
@@ -57,6 +58,7 @@ export function MessageBubble({ message, isLastAssistant, canRegenerate, onRegen
           bg="dark.2"
           style={{ maxWidth: '85%' }}
         >
+          <SentAttachmentChips attachments={message.attachments ?? []} />
           <Text size="lg" style={{ whiteSpace: 'pre-wrap' }}>
             {message.content}
           </Text>
