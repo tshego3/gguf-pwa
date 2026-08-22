@@ -2,8 +2,26 @@ import { useEffect, useState } from 'react';
 import * as engine from '../engine';
 import { probeCapabilities } from '../engine/capabilities';
 import { loadSettings, patchSettings } from '../db';
+import { resolveActiveModel } from '../models/activeModel';
 import { prepareChatModel, type PrepareChatModelResult } from '../models/prepareChatModel';
-import { toUserMessage, type BackendTier, type EngineError, type InstalledModel } from '../types';
+import { toUserMessage, type BackendTier, type EngineError, type EngineErrorType, type InstalledModel } from '../types';
+
+const KNOWN_ENGINE_ERROR_TYPES: readonly EngineErrorType[] = ['unsupported', 'download', 'load', 'oom', 'inference', 'aborted'];
+
+// Anything below engine.loadModel() (IndexedDB reads, capability probes)
+// can throw a raw DOMException or browser-specific error rather than a
+// typed EngineError - confirmed by a Samsung Internet report where a
+// stored FileSystemFileHandle failed to deserialize and left the screen
+// stuck with no feedback at all. Never let a shape we don't recognize
+// reach toUserMessage(), which assumes a known `type` (P4-T rule: user-safe
+// error messages, never raw internals).
+function safeErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'type' in error && KNOWN_ENGINE_ERROR_TYPES.includes((error as EngineError).type)) {
+    const engineError = error as EngineError;
+    return engineError.message || toUserMessage(engineError);
+  }
+  return 'The model could not be loaded.';
+}
 
 export type ChatEngineStatus =
   | 'checking'
@@ -44,35 +62,62 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
     async function run(): Promise<void> {
       setState(INITIAL_STATE);
 
-      const prepared = await prepareChatModel();
-      if (cancelled) return;
-
-      if (prepared.status !== 'ready') {
-        setState({ status: toStatus(prepared), tier: null, model: 'model' in prepared ? prepared.model : null, errorMessage: null });
-        return;
-      }
-
-      // Only the very first, automatic run of a fresh mount is gated -
-      // reloadKey > 0 means the user already clicked an explicit retry
-      // ("Try again" / "Load anyway"), which is itself the conscious
-      // confirmation this guard exists to require.
-      if (reloadKey === 0) {
-        const priorSettings = await loadSettings();
-        if (cancelled) return;
-        if (priorSettings.pendingLoadModelId === prepared.model.modelId) {
-          setState({ status: 'crash-risk', tier: null, model: prepared.model, errorMessage: null });
-          return;
-        }
-      }
-
-      setState({ status: 'loading-model', tier: null, model: prepared.model, errorMessage: null });
+      // Tracks the model to attribute a failure to, however early it
+      // happens - the whole pipeline below can throw (see safeErrorMessage
+      // above), not just the loadModel() call.
+      let modelForError: InstalledModel | null = null;
+      let flagWritten = false;
 
       try {
-        const [caps, settings] = await Promise.all([probeCapabilities(), loadSettings()]);
+        // The crash check runs BEFORE prepareChatModel(), and the flag is
+        // written before it too. Preparing a model opens its bytes (OPFS
+        // handles, wllama's cache), which is itself heavy enough to get a
+        // tab killed on iOS - an earlier version only wrapped loadModel(),
+        // so a kill during preparation was never recorded and Safari
+        // crash-looped until it gave up with "a problem repeatedly
+        // occurred". Only settings and the installed-model list are read
+        // first, both cheap IndexedDB reads that touch no weights.
+        const settings = await loadSettings();
+        if (cancelled) return;
+
+        // reloadKey > 0 means the user already clicked an explicit retry
+        // ("Try again" / "Load anyway"), which is the conscious
+        // confirmation this guard exists to require.
+        if (settings.pendingLoadModelId !== null && reloadKey === 0) {
+          const lastAttempted = await resolveActiveModel();
+          if (cancelled) return;
+          setState({ status: 'crash-risk', tier: null, model: lastAttempted, errorMessage: null });
+          return;
+        }
+
+        const active = await resolveActiveModel();
+        if (cancelled) return;
+        if (!active) {
+          setState({ status: 'no-model', tier: null, model: null, errorMessage: null });
+          return;
+        }
+        modelForError = active;
+
+        await patchSettings({ pendingLoadModelId: active.modelId });
+        flagWritten = true;
+
+        const prepared = await prepareChatModel();
+        if (cancelled) return;
+        if ('model' in prepared) modelForError = prepared.model;
+
+        if (prepared.status !== 'ready') {
+          await patchSettings({ pendingLoadModelId: null });
+          if (cancelled) return;
+          setState({ status: toStatus(prepared), tier: null, model: 'model' in prepared ? prepared.model : null, errorMessage: null });
+          return;
+        }
+
+        setState({ status: 'loading-model', tier: null, model: prepared.model, errorMessage: null });
+
+        const caps = await probeCapabilities();
         if (cancelled) return;
 
         const tier = settings.backendOverride === 'auto' ? caps.tier : settings.backendOverride;
-        await patchSettings({ pendingLoadModelId: prepared.model.modelId });
         await engine.loadModel(prepared.blobs, { ...caps, tier }, {
           nCtx: settings.nCtx,
           temperature: settings.temperature,
@@ -87,10 +132,11 @@ export function useChatEngine(reloadKey: number): ChatEngineState {
 
         setState({ status: 'ready', tier, model: prepared.model, errorMessage: null });
       } catch (error) {
-        await patchSettings({ pendingLoadModelId: null }).catch(() => undefined);
+        if (flagWritten) {
+          await patchSettings({ pendingLoadModelId: null }).catch(() => undefined);
+        }
         if (cancelled) return;
-        const engineError = error as EngineError;
-        setState({ status: 'error', tier: null, model: prepared.model, errorMessage: engineError.message || toUserMessage(engineError) });
+        setState({ status: 'error', tier: null, model: modelForError, errorMessage: safeErrorMessage(error) });
       }
     }
 

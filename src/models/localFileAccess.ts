@@ -87,7 +87,16 @@ export async function reacquireLocalFiles(model: InstalledModel): Promise<Reacqu
 
   const blobs: Blob[] = [];
   for (const fileName of model.fileNames) {
-    const handle = await getFileHandle(deriveHandleKey(model.modelId, fileName));
+    // getFileHandle can throw rather than resolve on a browser that fails
+    // to structured-clone a FileSystemFileHandle back out of IndexedDB
+    // (seen on Samsung Internet) - treated the same as "not found", since
+    // either way the stored handle is unusable.
+    let handle: FileSystemFileHandle | undefined;
+    try {
+      handle = await getFileHandle(deriveHandleKey(model.modelId, fileName));
+    } catch {
+      return { status: 'missing' };
+    }
     if (!handle) return { status: 'missing' };
 
     const handleWithPermissions = handle as FileSystemFileHandle & {

@@ -53,7 +53,7 @@ export function Transcript({ isLoading, errorMessage, messages, isStreaming, onR
     const lastAssistantSeq = [...messages].reverse().find((m) => m.role === 'assistant')?.seq;
 
     return (
-      <Stack gap="md" data-testid="transcript-data" aria-live="polite" aria-relevant="additions">
+      <Stack gap="lg" data-testid="transcript-data" aria-live="polite" aria-relevant="additions">
         {hidden > 0 && !showAll && (
           <Button variant="subtle" size="xs" onClick={() => setShowAll(true)} w="fit-content" mx="auto">
             Show {hidden} earlier messages

@@ -1,7 +1,11 @@
 /* Plain stylesheet, not a CSS module, per the design system's no-.module.css rule.
-   Scoped by the stable .md-content class rather than component-local scoping. */
+   Scoped by the stable .md-content class rather than component-local scoping.
+   Assistant output is the app's primary reading surface, so the size bump
+   lives here rather than in the theme's global font scale, which would drag
+   every other screen along with it. */
 .md-content {
-  line-height: 1.6;
+  font-size: var(--mantine-font-size-lg);
+  line-height: 1.7;
   word-wrap: break-word;
 }
 
@@ -14,16 +18,34 @@
 
 .md-content code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.md-content :not(pre) > code {
+  background: var(--mantine-color-dark-2);
+  border-radius: var(--mantine-radius-xs);
+  padding: 0.1em 0.35em;
 }
 
 .md-content pre code {
   white-space: pre;
+  background: none;
+  padding: 0;
 }
 
-.md-content p:first-child {
+.md-content > :first-child {
   margin-top: 0;
 }
 
-.md-content p:last-child {
+.md-content > :last-child {
   margin-bottom: 0;
+}
+
+.md-content ul,
+.md-content ol {
+  padding-left: 1.25em;
+}
+
+.md-content li + li {
+  margin-top: 0.25em;
 }

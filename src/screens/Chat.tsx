@@ -93,16 +93,35 @@ export function Chat(): ReactNode {
     await conversationList.refresh();
   }, [conversationId, conversationList]);
 
+  const [grantAccessError, setGrantAccessError] = useState<string | null>(null);
+  const [isGranting, setIsGranting] = useState(false);
+
   // requestPermission() on a file handle only succeeds with a live user
   // gesture behind it - some browsers (Samsung Internet among them) reject
   // it outright when it runs from a background effect, which is what the
   // automatic re-acquire on app start does. Calling it directly from this
-  // button's click keeps that gesture intact.
+  // button's click keeps that gesture intact. Every branch sets feedback -
+  // a prior version left the button looking dead on a browser that denies
+  // silently instead of throwing or showing its own prompt.
   const handleGrantAccess = useCallback(async () => {
     if (!engine.model) return;
-    const result = await reacquireLocalFiles(engine.model);
-    if (result.status === 'ok') {
-      setReloadKey((k) => k + 1);
+    setGrantAccessError(null);
+    setIsGranting(true);
+    try {
+      const result = await reacquireLocalFiles(engine.model);
+      if (result.status === 'ok') {
+        setReloadKey((k) => k + 1);
+        return;
+      }
+      setGrantAccessError(
+        result.status === 'permission-denied'
+          ? 'This browser denied access without asking. Delete this model in Models and load it again.'
+          : 'The original file could not be reopened. Delete this model in Models and load it again.',
+      );
+    } catch {
+      setGrantAccessError('This browser could not reopen the file. Delete this model in Models and load it again.');
+    } finally {
+      setIsGranting(false);
     }
   }, [engine.model]);
 
@@ -148,8 +167,13 @@ export function Chat(): ReactNode {
           {engine.model?.name ?? 'This model'} needs permission to re-access the file it was loaded
           from. Tap Grant access below - your browser may show its own file-access prompt.
         </Alert>
+        {grantAccessError && (
+          <Alert color="red" title="Still couldn't get access" data-testid="grant-access-error">
+            {grantAccessError}
+          </Alert>
+        )}
         <Group>
-          <Button onClick={() => void handleGrantAccess()} data-testid="grant-access-button">
+          <Button onClick={() => void handleGrantAccess()} loading={isGranting} data-testid="grant-access-button">
             Grant access
           </Button>
           <Button component="a" href="#/models" variant="subtle">
@@ -196,7 +220,7 @@ export function Chat(): ReactNode {
     >
       <Group justify="space-between" wrap="wrap" gap="xs">
         <Stack gap={2} style={{ minWidth: 0 }}>
-          <Title order={1} size="h3">
+          <Title order={1} size="h4">
             Chat
           </Title>
           <ModelHeader modelName={engine.model?.name ?? null} tier={engine.tier} />

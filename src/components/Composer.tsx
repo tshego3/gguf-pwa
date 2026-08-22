@@ -43,7 +43,7 @@ export function Composer({ disabled, isStreaming, tokensUsed, nCtx, onSend, onSt
           onKeyDown={handleKeyDown}
           disabled={disabled}
           autosize
-          minRows={2}
+          minRows={1}
           maxRows={10}
           size="md"
           style={{ flex: 1 }}
