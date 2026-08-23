@@ -154,14 +154,67 @@ That sends each provider a one-token request and reports the real status and err
 
 ```json
 {"probe":[
-  {"id":"ollama","model":"gpt-oss:120b","status":404,"ok":false,"detail":"model not found"},
-  {"id":"huggingface","model":"meta-llama/Llama-3.3-70B-Instruct","status":200,"ok":true,"detail":""}
+  {"id":"ollama","model":"gpt-oss:120b","status":401,"ok":false,"ms":230,"detail":"{\"error\":{\"message\":\"Unauthorized\"}}"},
+  {"id":"huggingface","model":"meta-llama/Llama-3.3-70B-Instruct","status":200,"ok":true,"ms":940,"detail":""}
 ]}
 ```
+
+`ms` is the point of the field: a provider that answers in 45 seconds and one that never answers are the same bare timeout, and only the first is worth waiting for.
 
 It spends real quota, so it is rate limited like a chat request and never runs unless `probe` is present. Plain `/health` stays free and answers from config alone. Neither form prints a key.
 
 To watch the fallback happen, remove one key with `npx wrangler secret delete OLLAMA_API_KEY` and repeat: the same request should come back with `X-Gguf-Provider: huggingface`.
+
+## Troubleshooting
+
+Run `?probe=1` first. It names the provider and gives you the upstream's own status and error, which is the whole diagnosis in one line.
+
+### `401 Unauthorized` from Ollama
+
+The key, not the model. A wrong model name comes back `404`.
+
+Check the key outside this Worker before touching anything here:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://ollama.com/v1/chat/completions \
+  -H "Authorization: Bearer $OLLAMA_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-oss:120b","messages":[{"role":"user","content":"ping"}],"max_tokens":1}'
+```
+
+`401` there too means the key is the problem, and redeploying will not help. Common causes, in order:
+
+- **The wrong kind of key.** [ollama.com/settings/keys](https://ollama.com/settings/keys) has held both an Ed25519 public key used by `ollama signin` for pushing and pulling, and API keys for HTTP calls. Only the second authenticates this endpoint.
+- **The key is not registered to the account** that owns the cloud subscription.
+- **Cloud access is not on that account.** The endpoint exists for everyone and answers `401` regardless, so this looks identical to a bad key from outside.
+
+Whitespace is already handled - `resolveProviders()` trims the secret, so a trailing newline from a paste cannot cause this.
+
+`200` from that curl but `401` through the Worker means the secret was stored wrong. Re-run `npx wrangler secret put OLLAMA_API_KEY`, or delete and re-add it in the dashboard.
+
+### A provider times out
+
+The chat path gives an upstream 60s, the probe 45s. Read `ms` before concluding anything.
+
+**Cold start, not death.** NVIDIA NIM in particular queues a request while the model spins up, and a first call after a quiet period can take tens of seconds while a rejected one comes back in under a second. Confirm the difference from outside:
+
+```bash
+curl -s -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' -X POST \
+  https://integrate.api.nvidia.com/v1/chat/completions \
+  -H "Authorization: Bearer $NVIDIA_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"meta/llama-3.3-70b-instruct","messages":[{"role":"user","content":"ping"}],"stream":true,"max_tokens":1}'
+```
+
+A bad key returns `403` in well under a second, so a long wait means the request was accepted and is queued, not refused.
+
+**A provider that reliably exceeds the timeout costs every request that reaches it.** Position matters: the chain only stalls if the slow provider sits ahead of a working one. A slow provider last in the chain is nearly free, because it is only reached when everything before it has already failed. If it is genuinely dead, remove it with `npx wrangler secret delete <KEY>` so the chain skips it instead of waiting on it.
+
+### Everything answers `502`
+
+Every configured provider refused. The body names the last failure; `?probe=1` names all of them.
+
+### The PWA cannot reach a working Worker
+
+Almost always the CSP. `grep -o "connect-src[^;]*" dist/index.html` must contain your hostname. If it does not, `REMOTE_WORKER_HOST` was changed without a rebuild - the CSP is a build-time `<meta>` tag, so a running site cannot pick up a new host.
 
 ## Wiring it into the PWA
 

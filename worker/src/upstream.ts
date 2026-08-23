@@ -193,10 +193,16 @@ export interface ProbeResult {
   readonly model: string;
   readonly status: number;
   readonly ok: boolean;
+  readonly ms: number;
   readonly detail: string;
 }
 
-const PROBE_TIMEOUT_MS = 20_000;
+// Deliberately shorter than the chat path's 60s but long enough to outlast
+// a cold start. A provider that misses this is not necessarily dead - the
+// reported `ms` is what separates "slow to wake" from "unreachable", and
+// guessing between those two from a bare timeout wasted a round trip once
+// already.
+const PROBE_TIMEOUT_MS = 45_000;
 
 // Asks one provider for a single token and reports what came back. This is
 // the only way to see why a configured provider is being skipped: the chat
@@ -206,18 +212,29 @@ const PROBE_TIMEOUT_MS = 20_000;
 // quota is spent. Costs one token per provider, so it is rate limited like
 // any other request and never runs unless asked for.
 export async function probeProvider(provider: UpstreamProvider): Promise<ProbeResult> {
+  const started = Date.now();
   const base = { id: provider.id, model: provider.model } as const;
   try {
+    // Streams like the chat path does, rather than asking for a
+    // non-streaming reply: the request headers already say
+    // Accept: text/event-stream, and NVIDIA hangs until the timeout when a
+    // stream:false body contradicts that. The status is all this needs, so
+    // the body is cancelled the moment it arrives.
     const response = await postCompletion(
       provider,
       [{ role: 'user', content: 'ping' }],
       null,
       AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      { stream: false, max_tokens: 1 },
+      { max_tokens: 1 },
     );
-    if (response.ok) return { ...base, status: response.status, ok: true, detail: '' };
-    return { ...base, status: response.status, ok: false, detail: (await response.text()).slice(0, 300) };
+    if (response.ok) {
+      await response.body?.cancel();
+      return { ...base, status: response.status, ok: true, ms: Date.now() - started, detail: '' };
+    }
+    const detail = (await response.text()).slice(0, 300);
+    return { ...base, status: response.status, ok: false, ms: Date.now() - started, detail };
   } catch (error) {
-    return { ...base, status: 0, ok: false, detail: error instanceof Error ? error.message : 'request failed' };
+    const detail = error instanceof Error ? error.message : 'request failed';
+    return { ...base, status: 0, ok: false, ms: Date.now() - started, detail };
   }
 }
