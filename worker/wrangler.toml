@@ -1,0 +1,53 @@
+# The keyed online API proxy for gguf-pwa. Deployed separately from the
+# static site: `npm install && npx wrangler deploy` from this directory.
+#
+# Keys are secrets, never vars - see README.md here for the three
+# `wrangler secret put` commands.
+name = "gguf-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-11-01"
+
+# "No telemetry" is this project's central claim, and wrangler phones home
+# about its own usage by default. Off here so a deploy from this directory
+# does not quietly contradict the README.
+send_metrics = false
+
+[vars]
+# Models are plain config, not secrets. Any tool-capable chat model on the
+# service works; these are the defaults the code falls back to.
+OLLAMA_MODEL = "gpt-oss:120b"
+HUGGINGFACE_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+NVIDIA_MODEL = "meta/llama-3.3-70b-instruct"
+
+# Tool calling per provider. Set one to "false" if you point that provider
+# at a model without tool support; the proxy also downgrades automatically
+# when an upstream rejects a tools array.
+OLLAMA_TOOLS = "true"
+HUGGINGFACE_TOOLS = "true"
+NVIDIA_TOOLS = "true"
+
+# The PWA is a public static site, so the default is open. Replace with a
+# comma-separated origin list to narrow it.
+ALLOWED_ORIGINS = "*"
+
+# fetch_url lets the model pull a public https page. Off by default: a
+# public proxy that fetches arbitrary URLs on demand is an abuse surface.
+ENABLE_WEB_FETCH = "false"
+
+MAX_PROMPT_CHARS = "24000"
+
+# Workers' built-in rate limiter. No KV namespace, no Durable Object, no
+# extra cost. namespace_id is a local identifier, not an account resource.
+#
+# This binding is wrangler-only: Cloudflare does not expose rate limiting
+# bindings in the dashboard, so a Worker pasted into the dashboard editor
+# has no throttle. The limiter is therefore optional in code - without the
+# binding the Worker still runs, it just does not throttle, and the prompt
+# and message caps are the only remaining brake. See README.md.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60

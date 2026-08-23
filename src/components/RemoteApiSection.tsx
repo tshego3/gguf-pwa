@@ -39,7 +39,7 @@ export function RemoteApiSection({
   function commit(provider: RemoteProvider): void {
     const draft = drafts[provider.id] ?? provider.urlTemplate;
     if (draft === provider.urlTemplate) return;
-    const check = checkRemoteEndpoint(draft.trim());
+    const check = checkRemoteEndpoint(draft.trim(), provider.method);
     if (!check.valid) {
       setErrors((prev) => ({ ...prev, [provider.id]: check.reason }));
       return;
@@ -56,9 +56,10 @@ export function RemoteApiSection({
       <Alert color="yellow" title="This sends your prompt off the device" data-testid="remote-privacy-warning">
         <Text size="xs">
           Everything else in this app runs locally and sends nothing. Switch this on and your
-          messages, including any text pulled out of an attachment, are sent to the third-party
-          service below. Neither default endpoint needs an account, and neither is operated by this
-          app. Do not send anything private through it.
+          messages, including any text pulled out of an attachment, are sent to the services below.
+          The keyed proxy is this project&apos;s own Cloudflare Worker, which forwards to Ollama,
+          Hugging Face, or NVIDIA; the two keyless endpoints need no account and are not operated by
+          this app. Do not send anything private through any of them.
         </Text>
       </Alert>
       <Switch
@@ -73,6 +74,7 @@ export function RemoteApiSection({
             <TextInput
               key={provider.id}
               label={`${roleLabel(index)} - ${provider.name}`}
+              description={provider.enabled ? undefined : 'Inactive in this build, so it is skipped.'}
               value={drafts[provider.id] ?? provider.urlTemplate}
               error={errors[provider.id] || undefined}
               onChange={(event) => {
@@ -86,9 +88,11 @@ export function RemoteApiSection({
             />
           ))}
           <Text c="dark.1" size="xs">
-            {'Use {prompt} where the message belongs. The fallback is tried only when the primary '}
-            fails before any reply has appeared. Hosts other than the two shipped here are blocked
-            by the app&apos;s content security policy, which is fixed when the app is built.
+            {'The keyless endpoints use {prompt} where the message belongs; the keyed proxy sends '}
+            the conversation in the request body instead. Each fallback is tried only when the one
+            before it fails before any reply has appeared. Hosts other than the three shipped here
+            are blocked by the app&apos;s content security policy, which is fixed when the app is
+            built.
           </Text>
           <Group>
             <Button size="xs" variant="subtle" onClick={onReset} data-testid="remote-reset-button">

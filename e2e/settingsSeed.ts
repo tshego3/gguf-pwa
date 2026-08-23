@@ -20,3 +20,31 @@ export async function seedMaxTokens(page: Page, maxTokens: number): Promise<void
     });
   }, maxTokens);
 }
+
+// Writes the online-API settings straight into IndexedDB, so a spec lands
+// on the online backend without walking the Settings UI first. It also
+// pins the proxy's address and enabled flag, which Settings has no
+// per-provider switch for. loadSettings() merges over DEFAULT_SETTINGS, so
+// a partial record here is enough.
+export async function seedRemoteProxy(page: Page, proxyUrl: string): Promise<void> {
+  await page.evaluate((url) => {
+    return new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('gguf-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction('settings', 'readwrite');
+        tx.objectStore('settings').put(
+          {
+            remoteEnabled: true,
+            activeModelId: 'remote:online',
+            remoteProviders: [{ id: 'worker', urlTemplate: url, enabled: true }],
+          },
+          'app-settings',
+        );
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  }, proxyUrl);
+}

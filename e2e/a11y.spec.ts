@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { skipIfOpfsUnavailable } from './opfsSupport';
 
@@ -10,6 +10,18 @@ const FIXTURE = fileURLToPath(new URL('./fixtures/stories260K.gguf', import.meta
 // Accessibility is checked independent of SW/PWA behavior.
 test.use({ serviceWorkers: 'block' });
 
+// The one violation this app ships knowingly. The viewport meta tag carries
+// maximum-scale/user-scalable at explicit request, which axe reports on
+// every screen - see the comment in index.html for why the tag is there and
+// what backs it up. Excluding the single rule keeps every other axe check
+// enforced; asserting a non-empty violations array instead would let a
+// second, unintended violation hide behind the first.
+const KNOWN_TRADEOFF_RULES: readonly string[] = ['meta-viewport'];
+
+function axe(page: Page): AxeBuilder {
+  return new AxeBuilder({ page }).disableRules([...KNOWN_TRADEOFF_RULES]);
+}
+
 test.describe('accessibility', () => {
   for (const route of ROUTES) {
     test(`${route} has zero axe violations`, async ({ page }) => {
@@ -18,7 +30,7 @@ test.describe('accessibility', () => {
       // suspense fallback - which legitimately has no <h1> and reports
       // page-has-heading-one. Wait for the real screen to mount first.
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-      const results = await new AxeBuilder({ page }).analyze();
+      const results = await axe(page).analyze();
       expect(results.violations).toEqual([]);
     });
   }
@@ -41,7 +53,7 @@ test.describe('accessibility', () => {
     // mid-animation as a false positive - let it settle first.
     await page.waitForTimeout(300);
 
-    const results = await new AxeBuilder({ page }).analyze();
+    const results = await axe(page).analyze();
     expect(results.violations).toEqual([]);
   });
 });

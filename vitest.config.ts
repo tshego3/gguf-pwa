@@ -6,7 +6,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}'],
+    // worker/ is a separate deployable with its own tsconfig and its own
+    // npm install, but its pure logic - provider order, SSE framing, delta
+    // and tool-call reassembly, request validation - has no Cloudflare
+    // globals in it and belongs in the same `npm test` as everything else.
+    include: ['src/**/*.test.{ts,tsx}', 'worker/src/**/*.test.ts'],
     css: false,
   },
 });

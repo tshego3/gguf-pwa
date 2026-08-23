@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint src/ e2e/",
+    "lint": "eslint src/ e2e/ worker/src/",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "check:engine-boundary": "bash scripts/check-engine-boundary.sh",

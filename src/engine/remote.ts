@@ -2,10 +2,12 @@
 // engine barrel, so nothing above src/engine/ knows which one answered.
 //
 // Unlike the local path this one leaves the device, so it is opt-in, the
-// UI names it, and this file holds no key of any kind - both default
-// endpoints are keyless. Failures fall through to the next provider only
-// while nothing has been shown yet; once a reply has started streaming a
-// failure is reported rather than silently restarted somewhere else.
+// UI names it, and this file holds no key of any kind - the keyless
+// endpoints need none, and the keyed ones are reached through a Cloudflare
+// Worker that holds the key on its side (worker/). Failures fall through to
+// the next provider only while nothing has been shown yet; once a reply has
+// started streaming a failure is reported rather than silently restarted
+// somewhere else.
 import { buildRemoteUrl, type RemoteProvider } from '../types/remote';
 import type { EngineError } from '../types';
 import type { EngineChatMessage } from './protocol';
@@ -153,8 +155,39 @@ function isFailureBody(body: unknown): boolean {
   return typeof record.error === 'string' && record.error.trim().length > 0;
 }
 
+// A GET endpoint takes the flattened prompt in the URL. A POST endpoint
+// takes the real role array in the body, which is both a better prompt for
+// a chat-completions upstream and the only shape that survives a
+// conversation carrying extracted attachment text - a URL has a length
+// ceiling and a message body does not. Image bytes are dropped rather than
+// serialised: only the local path can carry them.
+function requestInit(
+  provider: RemoteProvider,
+  messages: readonly EngineChatMessage[],
+  controller: AbortController,
+): RequestInit {
+  const common = {
+    signal: controller.signal,
+    referrerPolicy: 'no-referrer',
+    credentials: 'omit',
+  } as const satisfies RequestInit;
+
+  if (provider.method !== 'POST') {
+    return { ...common, method: 'GET', headers: { Accept: 'text/plain, application/json' } };
+  }
+  return {
+    ...common,
+    method: 'POST',
+    headers: { Accept: 'text/plain, application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages: messages.map((message) => ({ role: message.role, content: message.content })),
+    }),
+  };
+}
+
 async function startAttempt(
   provider: RemoteProvider,
+  messages: readonly EngineChatMessage[],
   prompt: string,
   controller: AbortController,
 ): Promise<AsyncIterable<string>> {
@@ -164,13 +197,10 @@ async function startAttempt(
   const timer = setTimeout(() => controller.abort(), HEADERS_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(buildRemoteUrl(provider.urlTemplate, prompt), {
-      method: 'GET',
-      signal: controller.signal,
-      headers: { Accept: 'text/plain, application/json' },
-      referrerPolicy: 'no-referrer',
-      credentials: 'omit',
-    });
+    response = await fetch(
+      buildRemoteUrl(provider.urlTemplate, prompt),
+      requestInit(provider, messages, controller),
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -229,7 +259,7 @@ export async function* remoteChat(
     for (const provider of enabled) {
       let stream: AsyncIterable<string>;
       try {
-        stream = await startAttempt(provider, prompt, controller);
+        stream = await startAttempt(provider, messages, prompt, controller);
       } catch (error) {
         if (abortedByUser) throw { type: 'aborted', message: '' } satisfies EngineError;
         lastError = toEngineError(error, provider);

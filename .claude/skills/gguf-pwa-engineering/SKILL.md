@@ -13,12 +13,16 @@ These rules are mandatory for all feature work, bug fixes, and refactors.
 2. UI library is [Mantine](https://mantine.dev/) (Core, Hooks).
 3. This is **gguf-pwa** - a browser-local LLM client. It downloads or opens a quantized llama.cpp GGUF model and runs inference entirely on the user's device via `@wllama/wllama`.
 4. **No inference server, no API key, no telemetry.** After the weights land, no request leaves the browser. This is the product's central claim; a change that breaks it is a change to the product, not an implementation detail.
+   - One recorded exception, off by default: the optional online API (`src/engine/remote.ts`). Selecting it in the model switcher sends prompts off the device, which the UI states before the switch. It is never the default and never on the local path.
+   - **No API key is ever in the bundle**, and that part has no exception. A public static site cannot hold a secret. The keyed providers are reached through `worker/`, which holds the keys in Cloudflare secrets on its own side.
 5. Deployment target is GitHub Pages. PWA features via Workbox Service Worker.
 6. Targets are iOS, Windows, and Android, all first-class. The iOS floor is "anything running iOS 26" - iPhone SE 2nd gen and iPhone 11 upward.
 
 ## Non-Negotiable Architecture Rules
 
-1. **No app server of any kind** - no Express, no Node server, no SSR runtime, no Cloudflare Worker. The PWA is fully static. If a problem seems to need a server, re-read the plan: the service worker is the proxy.
+1. **The PWA is fully static** - no Express, no Node server, no SSR runtime. It builds to `dist/` and is served by GitHub Pages. If a problem seems to need a server, re-read the plan: the service worker is the proxy. Model downloads in particular need none.
+   - **One Cloudflare Worker exists, in `worker/`, and it is the only one that ever will.** It is a keyed inference proxy for the optional online API, nothing else. It holds no app state, serves no page, and is not part of the static build or its deploy. The app runs completely without it: point `REMOTE_WORKER_HOST` at a `.invalid` host and its provider ships disabled, with the online path falling through to keyless endpoints.
+   - The bar for a second one is the bar this one cleared: it must be impossible in the browser (here, holding a secret), opt-in, off the critical path, and harmless when absent.
 2. **No remote database and no remote inference.** All state is local. Model weights never leave the device and never arrive from anywhere but the user's disk or the model host.
 3. No authentication flows. There is no account.
 4. **Inference never runs on the main thread.** wllama is hosted in a Web Worker. A blocking call on the render thread is a bug, not a tradeoff.

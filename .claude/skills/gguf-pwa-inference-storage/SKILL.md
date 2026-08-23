@@ -135,8 +135,8 @@ Two paths, offered as equal peers in the UI. Neither is a fallback.
 
 1. **Model output is untrusted input.** Sanitize before rendering. Render assistant markdown with `marked` then `dompurify` - `dompurify` is not optional. Prefer `textContent` over `innerHTML` everywhere else.
 2. **CSP carve-out for WASM.** WASM instantiation requires `wasm-unsafe-eval` in `script-src`. The ban on JavaScript `eval()`, `Function()`, and `document.write()` still stands. Delivered by meta tag, since GitHub Pages cannot set headers.
-3. `connect-src` is limited to the weight host. There is no analytics endpoint and no API.
-4. Never store secrets, API keys, or credentials in source code or localStorage. There are none in this app; keep it that way.
+3. `connect-src` is limited to the weight hosts plus the hosts in `REMOTE_API_HOSTS` (`src/types/remote.ts`), which are the optional online API's inference endpoints and nothing else. There is no analytics endpoint. The CSP is a build-time meta tag, so it cannot widen at runtime; adding a host means editing that one list and the matching token in `scripts/check-no-telemetry.sh`, which fails the build if the two disagree.
+4. Never store secrets, API keys, or credentials in source code or localStorage. There are none in the app or its bundle; keep it that way. The keyed online providers exist only behind `worker/`, which holds them as Cloudflare secrets - set with `wrangler secret put`, never committed, never `vars`, and never sent to the browser. A key reaching `src/` is a leak, not a shortcut.
 5. Validate all external input before use: GGUF headers, catalog JSON, URL strings, and anything read back from storage.
 6. `rel="noopener noreferrer"` on all external links with `target="_blank"` - licence links in particular.
 7. Vet all dependencies before adoption: exists on npmjs.com, legitimate publisher, no CVEs, active maintenance, clear MIT/Apache license. Never trust AI-suggested package names blindly - they may be typosquatted.

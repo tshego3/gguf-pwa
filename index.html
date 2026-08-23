@@ -3,13 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <!--
-      Zoom is suppressed by src/pwa/preventPinchZoom.ts, not by this tag.
-      maximum-scale/user-scalable are deliberately absent because they are
-      redundant: the browsers that honour them are a subset of those the JS
-      blocker already covers, and Samsung Internet ignored them outright,
-      which is why the JS path exists. Putting them back changes behaviour
-      on no real device and costs an axe meta-viewport failure on every
-      screen (e2e/a11y.spec.ts), which is why this reverts 48c238e.
+      maximum-scale/user-scalable are deliberately present, at explicit
+      request. They are the first line: a browser that honours them blocks
+      zoom before any JavaScript has parsed. src/pwa/preventPinchZoom.ts is
+      the second line, covering the browsers that ignore the tag outright
+      (Samsung Internet confirmed; recent Safari and Chrome for some users),
+      which is why both exist rather than either alone.
+
+      The cost is a real one and is accepted, not overlooked: axe reports a
+      meta-viewport violation on every screen for this tag. That is the same
+      knowing WCAG 1.4.4 trade-off already made for the JS blocker, so
+      e2e/a11y.spec.ts excludes that single rule and keeps checking
+      everything else, rather than the suite sitting red or the whole
+      accessibility check being switched off.
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#131313" />

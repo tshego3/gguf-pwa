@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"],
+    // The repo root's node_modules is on the lookup path from here, and
+    // @cloudflare/workers-types redefines globals that some of the app's dev
+    // dependencies also declare. Only this directory's own code is being
+    // checked, so their .d.ts conflicts are noise. The root tsconfig sets
+    // this too.
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src"]
+}
