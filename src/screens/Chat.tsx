@@ -1,5 +1,6 @@
 import { ActionIcon, Alert, Button, Group, Select, Stack, Text, Title } from '@mantine/core';
-import { IconPlus, IconTrash } from '@tabler/icons-react';
+import { useReducedMotion } from '@mantine/hooks';
+import { IconArrowDown, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Composer } from '../components/Composer';
 import { ModelHeader } from '../components/ModelHeader';
@@ -7,6 +8,7 @@ import { ModelSwitcher } from '../components/ModelSwitcher';
 import { SystemPromptControl } from '../components/SystemPromptControl';
 import { Transcript } from '../components/Transcript';
 import { loadSettings } from '../db';
+import { useAutoScroll } from '../hooks/useAutoScroll';
 import { useChatEngine } from '../hooks/useChatEngine';
 import { createNewConversation, removeConversation, useConversation } from '../hooks/useConversation';
 import { useConversationList } from '../hooks/useConversationList';
@@ -40,6 +42,8 @@ export function Chat(): ReactNode {
   const conversationList = useConversationList();
   const conversation = useConversation(conversationId, engine.status === 'ready', params);
   const tokensUsed = useTokenCount(conversation.state.messages, conversation.state.systemPrompt, engine.status === 'ready');
+  const autoScroll = useAutoScroll(conversationId);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     loadSettings()
@@ -292,15 +296,47 @@ export function Chat(): ReactNode {
         </Group>
       </Group>
 
-      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-        <Transcript
-          isLoading={conversation.state.isLoading}
-          errorMessage={conversation.state.errorMessage}
-          messages={conversation.state.messages}
-          isStreaming={conversation.state.isStreaming}
-          onRegenerate={() => void conversation.regenerate()}
-          onRetryLoad={() => setConversationId((id) => id)}
-        />
+      {/* The scroller and the button share this box so the button can sit
+          over the transcript rather than above the composer, where it
+          would push the composer around every time it appeared. */}
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div
+          ref={autoScroll.containerRef}
+          data-testid="transcript-scroller"
+          style={{ height: '100%', overflowY: 'auto' }}
+        >
+          <div ref={autoScroll.contentRef}>
+            <Transcript
+              isLoading={conversation.state.isLoading}
+              errorMessage={conversation.state.errorMessage}
+              messages={conversation.state.messages}
+              isStreaming={conversation.state.isStreaming}
+              onRegenerate={() => void conversation.regenerate()}
+              onRetryLoad={() => setConversationId((id) => id)}
+            />
+          </div>
+        </div>
+        {/* Only while the user has scrolled away from the newest message.
+            Following the reply is the default, so in the common case there
+            is nothing here to notice. */}
+        {!autoScroll.isPinned && conversation.state.messages.length > 0 && (
+          <Button
+            size="sm"
+            radius="xl"
+            h={44}
+            leftSection={<IconArrowDown size={16} stroke={1.75} />}
+            onClick={() => autoScroll.scrollToBottom(reduceMotion ? 'auto' : 'smooth')}
+            data-testid="jump-to-latest"
+            style={{
+              position: 'absolute',
+              bottom: 'var(--mantine-spacing-sm)',
+              left: '50%',
+              transform: 'translateX(-50%)',
+            }}
+          >
+            Jump to latest
+          </Button>
+        )}
       </div>
 
       {/* A failed generation leaves the transcript intact and reports
