@@ -11,7 +11,7 @@
 // more provider, sitting ahead of the two keyless endpoints that remain as
 // the fallback when every keyed provider here is out of quota.
 import { positiveInt, type Env } from './env';
-import { providerStatus, resolveProviders } from './providers';
+import { classifyChainFailure, providerStatus, resolveProviders } from './providers';
 import { buildToolRegistry } from './tools';
 import { probeProvider, streamProvider, UpstreamError, type ChatMessage } from './upstream';
 
@@ -124,12 +124,15 @@ async function openFirstWorkingProvider(
   signal: AbortSignal,
 ): Promise<
   | { readonly ok: true; readonly provider: string; readonly model: string; readonly first: string; readonly rest: AsyncGenerator<string> }
-  | { readonly ok: false; readonly detail: string }
+  | { readonly ok: false; readonly status: number; readonly detail: string }
 > {
   const providers = resolveProviders(env);
-  if (providers.length === 0) return { ok: false, detail: 'No upstream provider is configured on this proxy.' };
+  if (providers.length === 0) {
+    return { ok: false, status: 503, detail: 'No upstream provider is configured on this proxy.' };
+  }
 
   const registry = buildToolRegistry(env);
+  const statuses: number[] = [];
   let lastDetail = 'No upstream provider answered.';
 
   for (const provider of providers) {
@@ -137,19 +140,24 @@ async function openFirstWorkingProvider(
     try {
       const first = await rest.next();
       if (first.done) {
+        statuses.push(502);
         lastDetail = `${provider.name} returned nothing.`;
         continue;
       }
       return { ok: true, provider: provider.id, model: provider.model, first: first.value, rest };
     } catch (error) {
       await rest.return(undefined).catch(() => undefined);
-      lastDetail =
-        error instanceof UpstreamError
-          ? `${error.provider} refused the request (${error.status}).`
-          : `${provider.name} did not respond.`;
+      if (error instanceof UpstreamError) {
+        statuses.push(error.status);
+        lastDetail = `${error.provider} refused the request (${error.status}).`;
+      } else {
+        // No status at all: a connection failure or a timeout.
+        statuses.push(0);
+        lastDetail = `${provider.name} did not respond.`;
+      }
     }
   }
-  return { ok: false, detail: lastDetail };
+  return { ok: false, status: classifyChainFailure(statuses), detail: lastDetail };
 }
 
 function toStream(first: string, rest: AsyncGenerator<string>): ReadableStream<Uint8Array> {
@@ -189,7 +197,7 @@ async function handleChat(request: Request, env: Env, cors: Record<string, strin
   if (!parsed.ok) return textResponse(parsed.reason, 400, cors);
 
   const opened = await openFirstWorkingProvider(env, parsed.messages, request.signal);
-  if (!opened.ok) return textResponse(opened.detail, 502, cors);
+  if (!opened.ok) return textResponse(opened.detail, opened.status, cors);
 
   return new Response(toStream(opened.first, opened.rest), {
     status: 200,

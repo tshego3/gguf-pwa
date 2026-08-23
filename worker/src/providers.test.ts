@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isToolRejection, providerStatus, resolveProviders, shouldFailOver } from './providers';
+import { classifyChainFailure, isToolRejection, providerStatus, resolveProviders, shouldFailOver } from './providers';
 import type { Env } from './env';
 
 describe('resolveProviders', () => {
@@ -79,5 +79,38 @@ describe('probe endpoint contract', () => {
   it('probes exactly the providers a chat request would use', () => {
     const env = { OLLAMA_API_KEY: 'a', NVIDIA_API_KEY: 'c' };
     expect(resolveProviders(env).map((p) => p.id)).toEqual(['ollama', 'nvidia']);
+  });
+});
+
+describe('classifyChainFailure', () => {
+  it('reports no configured provider as 503', () => {
+    expect(classifyChainFailure([])).toBe(503);
+  });
+
+  // A class is only reported when every provider agrees, because "all three
+  // keys are dead" and "one key is dead" need different words downstream.
+  it('reports dead credentials only when every provider rejected them', () => {
+    expect(classifyChainFailure([401, 403, 401])).toBe(401);
+    expect(classifyChainFailure([401, 500])).toBe(502);
+  });
+
+  it('reports rate limiting only when every provider was rate limited', () => {
+    expect(classifyChainFailure([429, 429])).toBe(429);
+    expect(classifyChainFailure([429, 500])).toBe(502);
+  });
+
+  // Credit exhaustion is the exception to the agreement rule: it is the
+  // most actionable failure and the one the reader can actually fix.
+  it('surfaces a spent allowance even when only one provider reported it', () => {
+    expect(classifyChainFailure([500, 402, 429])).toBe(402);
+  });
+
+  it('reports an all-timeout chain as a gateway timeout', () => {
+    expect(classifyChainFailure([0, 0])).toBe(504);
+    expect(classifyChainFailure([0, 500])).toBe(502);
+  });
+
+  it('falls back to a plain bad-gateway for a mixed failure', () => {
+    expect(classifyChainFailure([500, 404])).toBe(502);
   });
 });

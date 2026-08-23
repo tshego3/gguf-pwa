@@ -101,3 +101,24 @@ export function isToolRejection(status: number, body: string): boolean {
   if (status !== 400 && status !== 422) return false;
   return /tool|function[_ ]call/i.test(body);
 }
+
+// Why the whole chain failed, expressed as the status the Worker answers
+// with. The PWA turns that one number into a sentence, which is the only
+// safe way to do it: an upstream's error body is a third party's text and
+// must never reach a user's screen, but a status code is bounded data.
+//
+// Agreement is the rule - a class is only reported when every provider said
+// it, because "all three keys are dead" and "one key is dead" need
+// different words. Credit exhaustion is the exception: it is the most
+// actionable failure here and the one most likely to be fixed by the
+// person reading it, so a single provider reporting it is enough.
+export function classifyChainFailure(statuses: readonly number[]): number {
+  if (statuses.length === 0) return 503;
+  if (statuses.includes(402)) return 402;
+  if (statuses.every((status) => status === 401 || status === 403)) return 401;
+  if (statuses.every((status) => status === 429)) return 429;
+  // 0 is this Worker's own marker for "never answered" - a connection
+  // failure or a timeout, neither of which carries an HTTP status.
+  if (statuses.every((status) => status === 0)) return 504;
+  return 502;
+}

@@ -20,7 +20,20 @@ All three speak the OpenAI chat-completions shape, so there is one adapter and a
 
 **A provider with no key is skipped, not attempted.** "Out of quota" and "not configured" are different states and only one of them costs a round trip. Any non-2xx moves to the next provider: `429` is the exhausted quota this chain is built for, `401`/`403` is a dead key, `5xx` is an upstream fault, and all three mean the same thing to the caller.
 
-**When the chain is exhausted the Worker answers `502`.** The PWA reads that as a failed provider and falls through to its own two keyless endpoints, which is the fourth and last tier. Nobody sees an error until all five have failed.
+**When the chain is exhausted the Worker answers with the reason, not a blanket `502`.** The PWA reads any non-2xx as a failed provider and falls through to its own two keyless endpoints, which are the fourth and last tier - so nobody sees an error until all five have failed. But the status still matters, because it is what the PWA turns into a sentence:
+
+| Status | Meaning | Sent when |
+|---|---|---|
+| `401` | Credentials rejected | Every provider answered 401/403 |
+| `402` | Credit or allowance spent | **Any** provider answered 402 |
+| `429` | Rate limited | Every provider answered 429 |
+| `504` | Nothing answered | Every provider timed out or failed to connect |
+| `502` | Mixed or unclassified | Anything else |
+| `503` | Nothing configured | No provider has a key |
+
+A class is only reported when every provider agrees, because "all three keys are dead" and "one key is dead" need different words. Credit exhaustion is the exception: it is the most actionable failure and the one the reader can actually fix, so one provider reporting it is enough.
+
+**The response body is never shown to a user.** It is an upstream's own text - a third party's string that could say anything - so the PWA reads only the status and writes its own sentence. The body exists for `curl` and for logs.
 
 ## Tool calling
 

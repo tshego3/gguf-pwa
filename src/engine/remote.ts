@@ -30,8 +30,70 @@ const ROLE_LABEL: Record<EngineChatMessage['role'], string> = {
 let activeController: AbortController | null = null;
 let abortedByUser = false;
 
-function inferenceError(message: string): EngineError {
-  return { type: 'inference', message };
+function inferenceError(message: string, status?: number): EngineError {
+  return { type: 'inference', message, status };
+}
+
+// How useful each failure's message is to the person reading it, best
+// first. When the primary endpoint dies of an expired key and the keyless
+// fallbacks then fail generically, reporting the last failure buries the
+// only sentence anyone could act on - so the list is ranked, not tailed.
+const FAILURE_PRIORITY: readonly number[] = [402, 401, 403, 413, 429, 408, 504, 524];
+
+export function failureRank(status: number | undefined): number {
+  const index = FAILURE_PRIORITY.indexOf(status ?? -1);
+  return index === -1 ? FAILURE_PRIORITY.length : index;
+}
+
+// Ties keep the earlier provider, which is the higher-priority endpoint the
+// user configured, so a primary's failure outranks a fallback's.
+export function mostActionable(failures: readonly EngineError[]): EngineError | null {
+  let best: EngineError | null = null;
+  let bestRank = Number.POSITIVE_INFINITY;
+  for (const failure of failures) {
+    const rank = failureRank(failure.type === 'inference' ? failure.status : undefined);
+    if (rank < bestRank) {
+      best = failure;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
+// One plain sentence per HTTP status, so a user meets words rather than a
+// number. Only the status is read - never the response body, which is a
+// third party's text and must not reach the screen.
+//
+// Every message says what happened and, where there is one, what to do.
+// "Try again" is only offered for failures that a retry can actually fix:
+// a spent monthly credit or a dead key does not get better by retrying,
+// and saying so saves the user from finding that out the slow way.
+export function remoteStatusMessage(name: string, status: number): string {
+  if (status === 401 || status === 403) {
+    return `${name} rejected its API key. The key has most likely expired or been revoked, and needs replacing before this endpoint works again.`;
+  }
+  if (status === 402) {
+    return `${name} has used up its credit for this period. It will work again when the allowance resets or more credit is added.`;
+  }
+  if (status === 429) {
+    return `${name} is refusing new requests because too many arrived at once. Wait a minute, then try again.`;
+  }
+  if (status === 408 || status === 504 || status === 524) {
+    return `${name} took too long to answer. It may be busy - try again, or switch to a downloaded model, which needs no connection at all.`;
+  }
+  if (status === 413) {
+    return `This conversation is too long for ${name}. Start a new conversation, or remove an attachment.`;
+  }
+  if (status === 503) {
+    return `${name} has no model available right now. Try again shortly.`;
+  }
+  if (status >= 500) {
+    return `${name} is having trouble on its side. Try again in a moment.`;
+  }
+  if (status >= 400) {
+    return `${name} could not accept this message.`;
+  }
+  return `${name} answered in a way this app could not use.`;
 }
 
 // These endpoints take one prompt string, not a role array. A first turn
@@ -193,20 +255,34 @@ async function startAttempt(
 ): Promise<AsyncIterable<string>> {
   // Aborts this attempt's own controller, not whichever one happens to be
   // active - a timer left over from an abandoned request must never kill
-  // the request that replaced it.
-  const timer = setTimeout(() => controller.abort(), HEADERS_TIMEOUT_MS);
+  // the request that replaced it. The flag is what separates this timeout
+  // from the user pressing Stop: both surface as the same AbortError, and
+  // only one of them is worth an error message.
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, HEADERS_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(
       buildRemoteUrl(provider.urlTemplate, prompt),
       requestInit(provider, messages, controller),
     );
+  } catch (error) {
+    if (timedOut) {
+      throw inferenceError(
+        `${provider.name} did not answer within ${HEADERS_TIMEOUT_MS / 1000} seconds. It may be overloaded - try again, or use a downloaded model, which needs no connection.`,
+        504,
+      );
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
 
   if (!response.ok) {
-    throw inferenceError(`${provider.name} refused the request (${response.status}).`);
+    throw inferenceError(remoteStatusMessage(provider.name, response.status), response.status);
   }
 
   const contentType = response.headers.get('content-type') ?? '';
@@ -253,7 +329,7 @@ export async function* remoteChat(
   activeController = controller;
   abortedByUser = false;
 
-  let lastError: EngineError = inferenceError('The online API could not be reached.');
+  const failures: EngineError[] = [];
 
   try {
     for (const provider of enabled) {
@@ -262,7 +338,7 @@ export async function* remoteChat(
         stream = await startAttempt(provider, messages, prompt, controller);
       } catch (error) {
         if (abortedByUser) throw { type: 'aborted', message: '' } satisfies EngineError;
-        lastError = toEngineError(error, provider);
+        failures.push(toEngineError(error, provider));
         continue;
       }
       try {
@@ -273,11 +349,11 @@ export async function* remoteChat(
       }
       return;
     }
-    // Naming only the last provider would read as if one endpoint failed,
-    // when every configured one did.
-    throw enabled.length > 1
-      ? inferenceError(`No online endpoint answered. Last try: ${lastError.message}`)
-      : lastError;
+    // Naming only one provider would read as if one endpoint failed, when
+    // every configured one did - but the count alone tells the user nothing
+    // they can act on, so the most actionable failure leads.
+    const best = mostActionable(failures) ?? inferenceError('The online API could not be reached.');
+    throw enabled.length > 1 ? inferenceError(`Every online endpoint failed. ${best.message}`) : best;
   } finally {
     if (activeController === controller) activeController = null;
   }

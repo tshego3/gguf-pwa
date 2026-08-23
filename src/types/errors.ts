@@ -3,7 +3,10 @@ export type EngineError =
   | { readonly type: 'download'; readonly message: string; readonly status?: number }
   | { readonly type: 'load'; readonly message: string }
   | { readonly type: 'oom'; readonly message: string }
-  | { readonly type: 'inference'; readonly message: string }
+  // `status` is set when the failure came from an online provider's HTTP
+  // response. It is what lets an ordered provider list report its most
+  // actionable failure rather than its last one.
+  | { readonly type: 'inference'; readonly message: string; readonly status?: number }
   | { readonly type: 'aborted'; readonly message: string };
 
 export type EngineErrorType = EngineError['type'];

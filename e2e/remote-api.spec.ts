@@ -196,3 +196,58 @@ test.describe('keyed proxy provider', () => {
     await expect(page.getByTestId('thinking-content')).toHaveText('Checking the date.');
   });
 });
+
+// The failure a user is most likely to hit once the keyed chain is live:
+// a key expires, or a month's credit runs out. Both must arrive as words
+// they can act on, not as a status code.
+test.describe('online API failure messages', () => {
+  async function askAndReadError(page: Page, status: number): Promise<string> {
+    await page.route(PROXY, (route) => route.fulfill({ status, contentType: 'text/plain', body: 'upstream said no' }));
+    await page.route(PRIMARY, (route) => route.fulfill({ status: 503, body: 'down' }));
+    await page.route(FALLBACK, (route) => route.fulfill({ status: 503, body: 'down' }));
+
+    await page.goto(`${BASE}#/settings`);
+    await seedRemoteProxy(page, PROXY_URL);
+    await page.goto(`${BASE}#/chat`);
+    await page.getByRole('textbox', { name: 'Message' }).fill('Hello');
+    await page.getByTestId('send-button').click();
+    await expect(page.getByTestId('generation-error')).toBeVisible({ timeout: 15_000 });
+    return page.getByTestId('generation-error').innerText();
+  }
+
+  test('says a key has expired rather than showing 401', async ({ page }) => {
+    const text = await askAndReadError(page, 401);
+    expect(text).toMatch(/expired|revoked/i);
+    expect(text).not.toContain('401');
+  });
+
+  test('says the credit is spent rather than showing 402', async ({ page }) => {
+    const text = await askAndReadError(page, 402);
+    expect(text).toMatch(/credit/i);
+    expect(text).not.toContain('402');
+  });
+
+  test('tells a rate-limited user to wait rather than showing 429', async ({ page }) => {
+    const text = await askAndReadError(page, 429);
+    expect(text).toMatch(/wait a minute/i);
+    expect(text).not.toContain('429');
+  });
+
+  test('points a timed-out user at the offline path', async ({ page }) => {
+    expect(await askAndReadError(page, 504)).toMatch(/downloaded model/i);
+  });
+
+  // The upstream's own error text is a third party's string. It must never
+  // reach the screen, whatever it says.
+  test('never renders the upstream body', async ({ page }) => {
+    expect(await askAndReadError(page, 500)).not.toContain('upstream said no');
+  });
+
+  // A failed turn is one turn, not the conversation - the retry affordance
+  // has to survive alongside the explanation.
+  test('keeps the transcript and the retry button', async ({ page }) => {
+    await askAndReadError(page, 402);
+    await expect(page.getByTestId('transcript-data')).toBeVisible();
+    await expect(page.getByTestId('generation-retry-button')).toBeVisible();
+  });
+});
