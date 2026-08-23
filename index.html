@@ -3,13 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <!--
-      Zoom is suppressed by src/pwa/preventPinchZoom.ts, not by this tag.
-      maximum-scale/user-scalable are deliberately absent because they are
-      redundant: the browsers that honour them are a subset of those the JS
-      blocker already covers, and Samsung Internet ignored them outright,
-      which is why the JS path exists. Putting them back changes behaviour
-      on no real device and costs an axe meta-viewport failure on every
-      screen (e2e/a11y.spec.ts), which is why this reverts 48c238e.
+      maximum-scale/user-scalable are deliberately present, at explicit
+      request. They are the first line: a browser that honours them blocks
+      zoom before any JavaScript has parsed. src/pwa/preventPinchZoom.ts is
+      the second line, covering the browsers that ignore the tag outright
+      (Samsung Internet confirmed; recent Safari and Chrome for some users),
+      which is why both exist rather than either alone.
+
+      The cost is a real one and is accepted, not overlooked: axe reports a
+      meta-viewport violation on every screen for this tag. That is the same
+      knowing WCAG 1.4.4 trade-off already made for the JS blocker, so
+      e2e/a11y.spec.ts excludes that single rule and keeps checking
+      everything else, rather than the suite sitting red or the whole
+      accessibility check being switched off.
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#131313" />
@@ -23,7 +29,7 @@
       weights and their CDN redirect target - the same huggingface.co entry also covers the
       live model-search API calls (api/models), which needs no separate host and no proxy since
       HF reflects the request's Origin as Access-Control-Allow-Origin (verified with curl).
-      https://text.pollinations.ai https://prexzyapis.com is substituted at build time by vite.config.ts from REMOTE_API_HOSTS
+      https://gguf-proxy.feeds-pwa.workers.dev https://text.pollinations.ai https://prexzyapis.com is substituted at build time by vite.config.ts from REMOTE_API_HOSTS
       in src/types/remote.ts, so the one list governs the CSP, the SW, and the Settings
       validation instead of three copies drifting apart. Those hosts are reachable only while
       the optional online API is switched on; the local path still sends nothing.
@@ -39,7 +45,7 @@
         style-src 'self' 'unsafe-inline';
         img-src 'self' data:;
         font-src 'self' data:;
-        connect-src 'self' https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co https://text.pollinations.ai https://prexzyapis.com;
+        connect-src 'self' https://huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co https://gguf-proxy.feeds-pwa.workers.dev https://text.pollinations.ai https://prexzyapis.com;
         worker-src 'self' blob:;
         object-src 'none';
         base-uri 'self';
@@ -72,7 +78,7 @@
       }
     </style>
     <title>gguf-pwa</title>
-    <script type="module" crossorigin src="/gguf-pwa/assets/index-CfPWgsRg.js"></script>
+    <script type="module" crossorigin src="/gguf-pwa/assets/index-CAENVWIF.js"></script>
     <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/rolldown-runtime-Bh1tDfsg.js">
     <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/framework-fV9Fig6l.js">
     <link rel="modulepreload" crossorigin href="/gguf-pwa/assets/wllama-ECqYUc-E.js">
